@@ -1,42 +1,27 @@
 [project]
-name = "template-project-placeholder"
+name = "goapml"
 version = "0.1.0"
-description = "Template project placeholder description"
+description = "Goal-oriented regression pipeline planning toolkit"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    "python-dotenv>=1.1.1",
+    "chardet>=5.2.0",
+    "joblib>=1.5.2",
+    "numpy>=2.3.4",
+    "pandas>=2.3.3",
     "pydantic>=2.12.3",
-    "pydantic-settings>=2.11.0",
-    "ulid>=1.1",
+    "scikit-learn>=1.2",
+    "typer>=0.20.0",
 ] # Update as needed for real project requirements
-
-[project.scripts]
-template-project-placeholder = "template_package.main:main"  # Replace with actual entry point
 
 [project.optional-dependencies]
 dev = [
-    "uv[dev]>=0.9.5",
+    "uv>=0.4.0",
     "nox>=2025.10.16",
     "ruff>=0.14.1",
     "pyright>=1.1.406",
-    "pip-audit>=2.9.0",
     "pytest>=8.4.2",
     "pytest-cov>=7.0.0",
-    "freezegun>=1.5.5",
-    "pytest-mock>=3.15.1",
-    "pytest-xdist>=3.8.0",
-    "responses>=0.25.8",
-    "pexpect>=4.9.0",
-    "pytest-asyncio>=1.2.0",
-    "diff-cover>=9.7.1",
-    "commitizen>=4.9.1",
-    "python-semantic-release>=10.4.1",
-    "py-spy>=0.4.1",
-    "scalene>=1.5.55",
-    "hatch>=1.15.1",
-    "pdm>=2.26.0",
-    "pre-commit>=4.3.0",
 ]
 
 [tool.uv]
