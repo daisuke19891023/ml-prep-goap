@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
+import numpy as np
 import pandas as pd
 
 from goapml.schemas import Action, ActionSchema
@@ -14,11 +15,28 @@ if TYPE_CHECKING:
     from pandas import DataFrame
 
     from goapml.models import PipelineConfig, WorldState
+    from numpy.typing import NDArray
 
-__all__ = ["CheckMissing"]
+__all__ = [
+    "CHECK_MISSING_SCHEMA",
+    "FIT_TRANSFORM_PREPROCESSOR_SCHEMA",
+    "CheckMissing",
+    "FitTransformPreprocessor",
+]
 
 
 _LOGGER = logging.getLogger(__name__)
+
+
+_EXPECTED_FEATURE_DIMENSION = 2
+
+
+class _TransformerProtocol(Protocol):
+    """Structural protocol for preprocessors supporting fit/transform."""
+
+    def fit(self, x: Any, y: Any | None = None) -> Any: ...
+
+    def transform(self, x: Any) -> Any: ...
 
 
 _CHECK_MISSING_SCHEMA = ActionSchema(
@@ -27,6 +45,8 @@ _CHECK_MISSING_SCHEMA = ActionSchema(
     provides={"missing_checked"},
     cost=1.0,
 )
+
+CHECK_MISSING_SCHEMA = _CHECK_MISSING_SCHEMA
 
 
 @dataclass(slots=True)
@@ -76,3 +96,65 @@ class CheckMissing(Action):
             )
 
         state.add("missing_checked")
+
+
+FIT_TRANSFORM_PREPROCESSOR_SCHEMA = ActionSchema(
+    name="fit_transform_preprocessor",
+    requires={"preprocessor_built"},
+    provides={"features_ready"},
+    cost=1.0,
+)
+
+
+@dataclass(slots=True)
+class FitTransformPreprocessor(Action):
+    """Fit a preprocessing transformer and apply it to train/test splits."""
+
+    schema: ActionSchema = field(default_factory=lambda: FIT_TRANSFORM_PREPROCESSOR_SCHEMA)
+
+    def run(self, state: WorldState, config: PipelineConfig) -> None:  # noqa: ARG002
+        """Fit the preprocessor on training data and transform both splits."""
+        if state.preprocessor is None:
+            message = "A preprocessor must be built before fitting and transforming."
+            raise RuntimeError(message)
+        if state.split is None:
+            message = "Train/test split must be available before preprocessing."
+            raise RuntimeError(message)
+
+        x_train, x_test, y_train, y_test = state.split
+        preprocessor = cast("_TransformerProtocol", state.preprocessor)
+
+        try:
+            preprocessor.fit(x_train, y_train)
+        except TypeError:
+            preprocessor.fit(x_train)
+
+        x_train_processed = preprocessor.transform(x_train)
+        x_test_processed = preprocessor.transform(x_test)
+
+        train_array = self._as_2d_array(x_train_processed)
+        test_array = self._as_2d_array(x_test_processed)
+
+        if train_array.shape[1] != test_array.shape[1]:
+            message = "Transformed feature matrices must share the same number of columns."
+            raise RuntimeError(message)
+
+        if train_array.shape[0] != len(y_train) or test_array.shape[0] != len(y_test):
+            message = "Transformed feature rows must align with target lengths."
+            raise RuntimeError(message)
+
+        state.split = (train_array, test_array, y_train, y_test)
+        state.add("features_ready")
+        state.logs.append("fit_transform_preprocessor")
+
+    @staticmethod
+    def _as_2d_array(data: Any) -> NDArray[np.float64]:
+        if hasattr(data, "toarray"):
+            data = data.toarray()
+        array = np.asarray(data, dtype=float)
+        if array.ndim == 1:
+            array = np.reshape(array, (-1, 1))
+        if array.ndim != _EXPECTED_FEATURE_DIMENSION:
+            message = "Transformed data must be two-dimensional."
+            raise RuntimeError(message)
+        return cast("NDArray[np.float64]", array)
