@@ -166,6 +166,7 @@ class WorldState:
     target: str | None = None
     xy: XYPair | None = None
     split: TrainTestSplit | None = None
+    col_types: dict[str, Literal["numeric", "categorical"]] | None = None
     preprocessor: TransformerMixin | None = None
     model: BaseEstimator | None = None
     pred: PredictionVector | None = None

@@ -6,8 +6,9 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 import pytest
+from pandas.api.types import is_numeric_dtype
 
-from goapml.actions.target import IdentifyTarget
+from goapml.actions.target import IdentifyTarget, ValidateTargetNumeric
 from goapml.models import FileSpec, PipelineConfig, TargetSpec, WorldState
 
 if TYPE_CHECKING:
@@ -65,6 +66,47 @@ def test_explicit_strategy_missing_column_raises(
     message = "Target column 'target' not found in the dataset."
     with pytest.raises(ValueError, match=message):
         IdentifyTarget().run(state, config)
+
+
+def test_validate_target_numeric_coerces_and_imputes(
+    pipeline_config: Callable[[TargetSpec], PipelineConfig],
+) -> None:
+    """Target column is coerced to numeric and sparse NaNs are imputed."""
+    frame = pd.DataFrame(
+        {"feature": [1, 2, 3, 4, 5], "target": ["1", "2", "bad", "4", "5"]},
+    )
+    config = pipeline_config(TargetSpec(strategy="explicit", name="target"))
+    state = build_state(frame)
+
+    IdentifyTarget().run(state, config)
+    ValidateTargetNumeric().run(state, config)
+
+    assert state.has("target_is_numeric")
+    assert state.df is not None
+    target_series = state.df["target"]
+    assert is_numeric_dtype(target_series)
+    assert target_series.iloc[2] == 3.0
+
+
+def test_validate_target_numeric_fails_when_nan_ratio_high(
+    pipeline_config: Callable[[TargetSpec], PipelineConfig],
+) -> None:
+    """High NaN ratios after coercion cause the action to fail with logging."""
+    frame = pd.DataFrame(
+        {
+            "feature": [1, 2, 3, 4, 5],
+            "target": ["bad", "worse", "3", "4", "bad"],
+        },
+    )
+    config = pipeline_config(TargetSpec(strategy="explicit", name="target"))
+    state = build_state(frame)
+
+    IdentifyTarget().run(state, config)
+
+    with pytest.raises(ValueError, match="could not be coerced"):
+        ValidateTargetNumeric().run(state, config)
+
+    assert state.logs[-1].startswith("target_numeric_failed:")
 
 
 def test_heuristic_strategy_prefers_priority_names(
