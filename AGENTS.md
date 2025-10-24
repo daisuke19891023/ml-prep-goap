@@ -118,3 +118,8 @@ uv run nox -s ci
 ```
 
 Follow this document strictly to keep changes small, deterministic, and continuously green.
+
+## 11. Additional Coding Guidance
+
+- Prefer Pydantic data structures over bare tuples when modelling structured data.
+- Keep each function focused on a single responsibility to uphold SOLID principles and maintain readability.
