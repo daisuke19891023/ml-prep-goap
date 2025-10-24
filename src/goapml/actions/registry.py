@@ -4,6 +4,17 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from goapml.actions.evaluate import Evaluate
+from goapml.actions.io import DetectEncoding, LoadCSV
+from goapml.actions.preprocess import (
+    BuildPreprocessor,
+    CheckMissing,
+    FitTransformPreprocessor,
+)
+from goapml.actions.split import SplitXY, TrainTestSplit
+from goapml.actions.target import IdentifyTarget, ValidateTargetNumeric
+from goapml.actions.train import Predict, TrainModel
+
 import goapml.schemas as action_schemas
 from pydantic import BaseModel, ConfigDict
 
@@ -105,6 +116,27 @@ class _ActionRegistry:
 _REGISTRY = _ActionRegistry()
 
 
+def _register_default_actions() -> None:
+    """Populate the registry with the built-in action implementations."""
+    default_actions = [
+        DetectEncoding(),
+        LoadCSV(),
+        IdentifyTarget(),
+        ValidateTargetNumeric(),
+        SplitXY(),
+        TrainTestSplit(),
+        CheckMissing(),
+        BuildPreprocessor(),
+        FitTransformPreprocessor(),
+        TrainModel(),
+        Predict(),
+        Evaluate(),
+    ]
+
+    for action in default_actions:
+        _REGISTRY.register(action)
+
+
 def register(action: Action) -> None:
     """Register an action implementation with its schema."""
     _REGISTRY.register(action)
@@ -118,3 +150,6 @@ def get(name: str) -> Action:
 def list_schemas() -> list[ActionSchema]:
     """Return every registered schema."""
     return _REGISTRY.list_schemas()
+
+
+_register_default_actions()

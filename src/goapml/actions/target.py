@@ -9,7 +9,12 @@ import math
 import numbers
 import statistics
 
-from goapml.schemas import Action, ActionSchema
+from goapml.schemas import (
+    Action,
+    ActionSchema,
+    IDENTIFY_TARGET_SCHEMA,
+    VALIDATE_TARGET_NUMERIC_SCHEMA,
+)
 
 if TYPE_CHECKING:
     from pandas import DataFrame
@@ -20,14 +25,6 @@ __all__ = ["IdentifyTarget", "ValidateTargetNumeric"]
 
 
 _TARGET_PRIORITY = ("target", "y", "label")
-
-
-IDENTIFY_TARGET_SCHEMA = ActionSchema(
-    name="identify_target",
-    requires={"csv_loaded"},
-    provides={"target_identified"},
-    cost=1.0,
-)
 
 
 def _coerce_to_float(value: object) -> float:
@@ -118,14 +115,6 @@ class IdentifyTarget(Action):
         raw_columns = cast("list[object]", df.columns.tolist())
         columns: list[str] = [str(column) for column in raw_columns]
         return columns[-1]
-
-
-VALIDATE_TARGET_NUMERIC_SCHEMA = ActionSchema(
-    name="validate_target_numeric",
-    requires={"target_identified"},
-    provides={"target_is_numeric"},
-    cost=1.0,
-)
 
 
 @dataclass(slots=True)

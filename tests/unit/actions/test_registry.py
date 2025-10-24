@@ -58,6 +58,7 @@ def test_register_get_and_execute_action(pipeline_config: PipelineConfig) -> Non
     )
     dummy_action = DummyAction(schema=dummy_schema)
 
+    existing_schemas = registry.list_schemas()
     registry.register(dummy_action)
     retrieved = registry.get("dummy")
 
@@ -66,7 +67,7 @@ def test_register_get_and_execute_action(pipeline_config: PipelineConfig) -> Non
 
     assert state.has("dummy_done")
     assert state.logs[-1].startswith("ran:dummy:")
-    assert registry.list_schemas() == [dummy_schema]
+    assert registry.list_schemas() == [*existing_schemas, dummy_schema]
 
 
 def test_register_duplicate_name_raises() -> None:
@@ -82,3 +83,25 @@ def test_get_unknown_action_raises() -> None:
     """Requesting an unknown action results in a dedicated exception."""
     with pytest.raises(registry.UnknownActionError):
         registry.get("missing")
+
+
+def test_default_action_schemas_are_registered() -> None:
+    """Importing the registry registers the standard set of schemas."""
+    names = [schema.name for schema in registry.list_schemas()]
+    assert names == DEFAULT_ACTION_NAMES
+DEFAULT_ACTION_NAMES = [
+    "detect_encoding",
+    "load_csv",
+    "identify_target",
+    "validate_target_numeric",
+    "split_xy",
+    "train_test_split",
+    "check_missing",
+    "build_preprocessor",
+    "fit_transform_preprocessor",
+    "train_model",
+    "predict",
+    "evaluate",
+]
+
+

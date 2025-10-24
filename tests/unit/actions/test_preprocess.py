@@ -5,10 +5,13 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
-from sklearn.compose import ColumnTransformer
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
-from goapml.actions.preprocess import CheckMissing, FitTransformPreprocessor
+from goapml.actions.preprocess import (
+    BuildPreprocessor,
+    CheckMissing,
+    FitTransformPreprocessor,
+)
+from goapml.actions.split import SplitXY, TrainTestSplit
 from goapml.models import FileSpec, MissingPolicy, PipelineConfig, WorldState
 
 if TYPE_CHECKING:
@@ -99,40 +102,29 @@ def test_check_missing_no_warning_when_below_threshold(
 def test_fit_transform_preprocessor_returns_numpy_arrays(tmp_path: Path) -> None:
     """The preprocessor should fit on train data and return dense arrays."""
     config = _build_config(tmp_path)
-    features = pd.DataFrame(
+    frame = pd.DataFrame(
         {
             "num": [0.0, 1.0, 2.0, 3.0, 4.0],
             "cat": ["a", "b", "a", "c", "b"],
+            "target": [0.0, 1.0, 0.0, 1.0, 0.0],
         },
     )
-    target = pd.Series([0.0, 1.0, 0.0, 1.0, 0.0], dtype=float)
 
-    x_train = features.iloc[:3]
-    x_test = features.iloc[3:]
-    y_train = target.iloc[:3]
-    y_test = target.iloc[3:]
+    state = WorldState(df=frame, facts={"target_is_numeric"}, target="target")
 
-    preprocessor = ColumnTransformer(
-        transformers=[
-            ("num", StandardScaler(), ["num"]),
-            (
-                "cat",
-                OneHotEncoder(handle_unknown="ignore", sparse_output=False),
-                ["cat"],
-            ),
-        ],
-    )
+    SplitXY().run(state, config)
+    TrainTestSplit().run(state, config)
 
-    state = WorldState(
-        split=(x_train, x_test, y_train, y_test),
-        preprocessor=preprocessor,
-        facts={"preprocessor_built"},
-    )
+    assert state.split is not None
+    x_train_raw, x_test_raw, y_train_raw, y_test_raw = state.split
 
+    BuildPreprocessor().run(state, config)
     FitTransformPreprocessor().run(state, config)
 
     assert state.split is not None
     assert state.preprocessor is not None
+    from sklearn.compose import ColumnTransformer
+
     assert isinstance(state.preprocessor, ColumnTransformer)
     x_train_proc, x_test_proc, y_train_proc, y_test_proc = state.split
 
@@ -141,15 +133,16 @@ def test_fit_transform_preprocessor_returns_numpy_arrays(tmp_path: Path) -> None
     assert x_train_proc.dtype == np.float64
     assert x_test_proc.dtype == np.float64
 
-    assert x_train_proc.shape[0] == len(x_train)
-    assert x_test_proc.shape[0] == len(x_test)
+    assert x_train_proc.shape[0] == len(x_train_raw)
+    assert x_test_proc.shape[0] == len(x_test_raw)
     assert x_train_proc.shape[1] == x_test_proc.shape[1]
 
-    assert y_train_proc is y_train
-    assert y_test_proc is y_test
+    assert len(y_train_proc) == len(y_train_raw)
+    assert len(y_test_proc) == len(y_test_raw)
 
     assert state.has("features_ready")
     assert state.logs[-1] == "fit_transform_preprocessor"
+    assert any(entry.startswith("build_preprocessor:") for entry in state.logs)
 
     numeric_mean = float(np.mean(x_train_proc[:, 0]))
     assert np.isclose(numeric_mean, 0.0, atol=1e-9)

@@ -8,7 +8,12 @@ from typing import TYPE_CHECKING
 
 from chardet.universaldetector import UniversalDetector
 
-from goapml.schemas import Action, ActionSchema
+from goapml.schemas import (
+    Action,
+    ActionSchema,
+    DETECT_ENCODING_SCHEMA,
+    LOAD_CSV_SCHEMA,
+)
 
 if TYPE_CHECKING:
     from goapml.models import PipelineConfig, WorldState
@@ -27,24 +32,6 @@ _CJK_UNIFIED_START = 0x4E00
 _CJK_UNIFIED_END = 0x9FFF
 _HALF_WIDTH_KATAKANA_START = 0xFF66
 _HALF_WIDTH_KATAKANA_END = 0xFF9D
-
-
-DETECT_ENCODING_SCHEMA = ActionSchema(
-    name="detect_encoding",
-    requires={"file_exists"},
-    provides={"encoding_detected"},
-    cost=1.0,
-)
-
-
-LOAD_CSV_SCHEMA = ActionSchema(
-    name="load_csv",
-    requires={"encoding_detected"},
-    provides={"csv_loaded"},
-    cost=1.0,
-)
-
-
 @dataclass(slots=True)
 class DetectEncoding(Action):
     """Determine the CSV file encoding before ingestion."""
