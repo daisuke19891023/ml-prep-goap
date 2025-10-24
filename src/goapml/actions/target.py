@@ -5,6 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, cast
 
+import math
+import numbers
+import statistics
+
 from goapml.schemas import Action, ActionSchema
 
 if TYPE_CHECKING:
@@ -12,7 +16,7 @@ if TYPE_CHECKING:
 
     from goapml.models import PipelineConfig, TargetSpec, WorldState
 
-__all__ = ["IdentifyTarget"]
+__all__ = ["IdentifyTarget", "ValidateTargetNumeric"]
 
 
 _TARGET_PRIORITY = ("target", "y", "label")
@@ -24,6 +28,23 @@ IDENTIFY_TARGET_SCHEMA = ActionSchema(
     provides={"target_identified"},
     cost=1.0,
 )
+
+
+def _coerce_to_float(value: object) -> float:
+    """Attempt to convert ``value`` to ``float`` returning NaN on failure."""
+    if isinstance(value, numbers.Real):
+        return float(value)
+
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return math.nan
+        try:
+            return float(text)
+        except ValueError:
+            return math.nan
+
+    return math.nan
 
 
 @dataclass(slots=True)
@@ -97,3 +118,55 @@ class IdentifyTarget(Action):
         raw_columns = cast("list[object]", df.columns.tolist())
         columns: list[str] = [str(column) for column in raw_columns]
         return columns[-1]
+
+
+VALIDATE_TARGET_NUMERIC_SCHEMA = ActionSchema(
+    name="validate_target_numeric",
+    requires={"target_identified"},
+    provides={"target_is_numeric"},
+    cost=1.0,
+)
+
+
+@dataclass(slots=True)
+class ValidateTargetNumeric(Action):
+    """Ensure the identified target column can be treated as numeric."""
+
+    schema: ActionSchema = field(default_factory=lambda: VALIDATE_TARGET_NUMERIC_SCHEMA)
+    nan_ratio_threshold: float = 0.2
+
+    def run(self, state: WorldState, config: PipelineConfig) -> None:  # noqa: ARG002
+        """Convert the target column to numeric data, imputing sparse failures."""
+        if state.df is None or state.target is None:
+            message = "Target must be identified before numeric validation."
+            raise RuntimeError(message)
+
+        series = state.df[state.target]
+        numeric_values = [_coerce_to_float(value) for value in series]
+        total = len(numeric_values)
+        if total == 0:
+            message = "Target column contains no rows to validate."
+            raise ValueError(message)
+
+        nan_count = sum(math.isnan(value) for value in numeric_values)
+        nan_ratio = nan_count / total
+
+        if nan_ratio > self.nan_ratio_threshold:
+            state.logs.append(
+                f"target_numeric_failed:nan_ratio={nan_ratio:.3f}",
+            )
+            percentage = nan_ratio * 100
+            message = (
+                "Target column could not be coerced to numeric values: "
+                f"{percentage:.1f}% NaNs after conversion"
+            )
+            raise ValueError(message)
+
+        non_nan_values = [value for value in numeric_values if not math.isnan(value)]
+        median = float(statistics.median(non_nan_values))
+        filled_values = [median if math.isnan(value) else value for value in numeric_values]
+        state.df[state.target] = filled_values
+        state.add("target_is_numeric")
+        state.logs.append(
+            f"target_numeric_ok:nan_ratio={nan_ratio:.3f},imputed=median",
+        )
