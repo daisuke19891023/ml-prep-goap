@@ -1,3 +1,7 @@
 """Action modules orchestrating the GOAP regression pipeline."""
 
-__all__ = []
+from .io import DetectEncoding
+
+__all__ = [
+    "DetectEncoding",
+]
