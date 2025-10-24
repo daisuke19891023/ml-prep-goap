@@ -2,14 +2,50 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
+from numpy.typing import NDArray
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 _MIN_TEST_SIZE = 0.05
 _MAX_TEST_SIZE = 0.5
+
+
+if TYPE_CHECKING:
+    import numpy as np
+    from pandas import DataFrame, Series
+    from sklearn.base import BaseEstimator, TransformerMixin
+else:  # pragma: no cover - fallback types for runtime use only
+    class _Float64(float):
+        """Runtime placeholder for numpy float64 type."""
+
+    class _NumpyStub:
+        float64 = _Float64
+
+    np = _NumpyStub()
+    DataFrame = object
+    Series = object
+    BaseEstimator = object
+    TransformerMixin = object
+
+
+FeatureMatrix = Sequence[Sequence[float]] | DataFrame | NDArray[np.float64]
+TargetVector = Sequence[float] | Series | NDArray[np.float64]
+XYPair = tuple[FeatureMatrix, TargetVector]
+TrainTestSplit = tuple[FeatureMatrix, FeatureMatrix, TargetVector, TargetVector]
+PredictionVector = Sequence[float] | Series | NDArray[np.float64]
+
+
+def _empty_fact_set() -> set[str]:
+    return set()
+
+
+def _empty_log_list() -> list[str]:
+    return []
 
 
 class FileSpec(BaseModel):
@@ -118,4 +154,33 @@ class PipelineConfig(BaseModel):
     model: ModelPolicy = ModelPolicy()
     eval: EvalPolicy = EvalPolicy()
     planner: PlannerPolicy = PlannerPolicy()
+
+
+@dataclass(slots=True)
+class WorldState:
+    """Mutable container storing planner facts and runtime artefacts."""
+
+    facts: set[str] = field(default_factory=_empty_fact_set)
+    df: DataFrame | None = None
+    encoding: str | None = None
+    target: str | None = None
+    xy: XYPair | None = None
+    split: TrainTestSplit | None = None
+    preprocessor: TransformerMixin | None = None
+    model: BaseEstimator | None = None
+    pred: PredictionVector | None = None
+    metrics: dict[str, float] | None = None
+    logs: list[str] = field(default_factory=_empty_log_list)
+
+    def has(self, fact: str) -> bool:
+        """Return whether the state currently holds a fact."""
+        return fact in self.facts
+
+    def add(self, fact: str) -> None:
+        """Record that a fact now holds true."""
+        self.facts.add(fact)
+
+    def remove(self, fact: str) -> None:
+        """Remove a fact when it is no longer valid."""
+        self.facts.discard(fact)
 
