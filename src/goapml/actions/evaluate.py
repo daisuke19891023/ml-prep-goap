@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 import numpy as np
 from numpy.typing import NDArray
 
-from goapml.schemas import Action, ActionSchema
+from goapml.schemas import Action, ActionSchema, EVALUATE_SCHEMA
 
 if TYPE_CHECKING:
     from goapml.models import PipelineConfig, WorldState
@@ -51,14 +51,6 @@ def _r2(y_true: Any, y_pred: Any) -> float:
     if ss_tot == 0.0:
         return 1.0 if np.allclose(true, pred) else 0.0
     return float(1.0 - (ss_res / ss_tot))
-
-
-EVALUATE_SCHEMA = ActionSchema(
-    name="evaluate",
-    requires={"predicted"},
-    provides={"evaluated"},
-    cost=1.0,
-)
 
 
 @dataclass(slots=True)

@@ -8,8 +8,24 @@ from typing import TYPE_CHECKING, Any, Protocol, cast
 
 import numpy as np
 import pandas as pd
+from sklearn.compose import ColumnTransformer
+from sklearn.impute import SimpleImputer
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import (
+    MinMaxScaler,
+    OneHotEncoder,
+    OrdinalEncoder,
+    RobustScaler,
+    StandardScaler,
+)
 
-from goapml.schemas import Action, ActionSchema
+from goapml.schemas import (
+    Action,
+    ActionSchema,
+    BUILD_PREPROCESSOR_SCHEMA,
+    CHECK_MISSING_SCHEMA,
+    FIT_TRANSFORM_PREPROCESSOR_SCHEMA,
+)
 
 if TYPE_CHECKING:
     from pandas import DataFrame
@@ -18,8 +34,10 @@ if TYPE_CHECKING:
     from numpy.typing import NDArray
 
 __all__ = [
+    "BUILD_PREPROCESSOR_SCHEMA",
     "CHECK_MISSING_SCHEMA",
     "FIT_TRANSFORM_PREPROCESSOR_SCHEMA",
+    "BuildPreprocessor",
     "CheckMissing",
     "FitTransformPreprocessor",
 ]
@@ -39,21 +57,11 @@ class _TransformerProtocol(Protocol):
     def transform(self, x: Any) -> Any: ...
 
 
-_CHECK_MISSING_SCHEMA = ActionSchema(
-    name="check_missing",
-    requires={"xy_separated"},
-    provides={"missing_checked"},
-    cost=1.0,
-)
-
-CHECK_MISSING_SCHEMA = _CHECK_MISSING_SCHEMA
-
-
 @dataclass(slots=True)
 class CheckMissing(Action):
     """Compute column-wise missing ratios and report high-risk features."""
 
-    schema: ActionSchema = field(default_factory=lambda: _CHECK_MISSING_SCHEMA)
+    schema: ActionSchema = field(default_factory=lambda: CHECK_MISSING_SCHEMA)
 
     def run(self, state: WorldState, config: PipelineConfig) -> None:
         """Log missing value statistics and emit warnings for high ratios."""
@@ -98,12 +106,137 @@ class CheckMissing(Action):
         state.add("missing_checked")
 
 
-FIT_TRANSFORM_PREPROCESSOR_SCHEMA = ActionSchema(
-    name="fit_transform_preprocessor",
-    requires={"preprocessor_built"},
-    provides={"features_ready"},
-    cost=1.0,
-)
+@dataclass(slots=True)
+class BuildPreprocessor(Action):
+    """Construct the preprocessing pipeline according to the configuration."""
+
+    schema: ActionSchema = field(default_factory=lambda: BUILD_PREPROCESSOR_SCHEMA)
+
+    def run(self, state: WorldState, config: PipelineConfig) -> None:
+        """Instantiate a column transformer based on column types."""
+        if state.split is None or state.col_types is None:
+            message = "Train/test split must be completed before building the preprocessor."
+            raise RuntimeError(message)
+
+        x_train, _, _, _ = state.split
+
+        if not hasattr(x_train, "columns"):
+            message = "Training features must be a pandas DataFrame to build the preprocessor."
+            raise TypeError(message)
+
+        numeric_columns = [
+            column
+            for column, kind in state.col_types.items()
+            if kind == "numeric"
+        ]
+        categorical_columns = [
+            column
+            for column, kind in state.col_types.items()
+            if kind == "categorical"
+        ]
+
+        if not numeric_columns and not categorical_columns:
+            message = "No feature columns available to build a preprocessor."
+            raise ValueError(message)
+
+        transformers: list[tuple[str, Any, list[str]]] = []
+
+        if numeric_columns:
+            numeric_transformer = self._build_numeric_pipeline(config)
+            transformers.append(("numeric", numeric_transformer, numeric_columns))
+
+        if categorical_columns:
+            categorical_transformer = self._build_categorical_pipeline(config)
+            transformers.append(("categorical", categorical_transformer, categorical_columns))
+
+        preprocessor = ColumnTransformer(
+            transformers=transformers,
+            remainder="drop",
+            sparse_threshold=0.0,
+        )
+
+        state.preprocessor = preprocessor
+        state.add("preprocessor_built")
+        state.logs.append(
+            "build_preprocessor:"
+            f"num={len(numeric_columns)},cat={len(categorical_columns)}",
+        )
+
+    def _build_numeric_pipeline(self, config: PipelineConfig) -> Pipeline:
+        strategy = config.missing.numeric
+        if strategy == "drop_rows":
+            message = "drop_rows missing policy is not supported for numeric features."
+            raise ValueError(message)
+
+        imputer_kwargs: dict[str, Any] = {}
+        if strategy == "constant":
+            fill_value = config.missing.fill_value_numeric
+            imputer_kwargs["fill_value"] = 0.0 if fill_value is None else float(fill_value)
+
+        numeric_imputer = SimpleImputer(strategy=strategy, **imputer_kwargs)
+
+        scaler = self._select_scaler(config)
+        steps: list[tuple[str, Any]] = [("impute", numeric_imputer)]
+        if scaler is not None:
+            steps.append(("scale", scaler))
+        return Pipeline(steps)
+
+    def _build_categorical_pipeline(self, config: PipelineConfig) -> Pipeline:
+        strategy = config.missing.categorical
+        if strategy == "drop_rows":
+            message = "drop_rows missing policy is not supported for categorical features."
+            raise ValueError(message)
+
+        imputer_kwargs: dict[str, Any] = {}
+        if strategy == "constant":
+            fill_value = config.missing.fill_value_categorical or "missing"
+            imputer_kwargs["fill_value"] = fill_value
+
+        categorical_imputer = SimpleImputer(
+            strategy="most_frequent" if strategy != "constant" else "constant",
+            **imputer_kwargs,
+        )
+
+        encoder = self._select_encoder(config)
+        steps: list[tuple[str, Any]] = [("impute", categorical_imputer)]
+        if encoder is not None:
+            steps.append(("encode", encoder))
+        return Pipeline(steps)
+
+    @staticmethod
+    def _select_scaler(
+        config: PipelineConfig,
+    ) -> StandardScaler | MinMaxScaler | RobustScaler | None:
+        strategy = config.scaling.strategy
+        if strategy == "standard":
+            return StandardScaler()
+        if strategy == "minmax":
+            return MinMaxScaler()
+        if strategy == "robust":
+            return RobustScaler()
+        if strategy == "none":
+            return None
+        message = f"Unsupported scaling strategy: {strategy}"
+        raise ValueError(message)
+
+    @staticmethod
+    def _select_encoder(config: PipelineConfig) -> OneHotEncoder | OrdinalEncoder | None:
+        encode = config.category.encode
+        handle_unknown = config.category.handle_unknown
+        if encode == "onehot":
+            return OneHotEncoder(
+                handle_unknown=handle_unknown,
+                sparse_output=False,
+                dtype=np.float64,
+            )
+        if encode == "ordinal":
+            if handle_unknown == "ignore":
+                return OrdinalEncoder(handle_unknown="use_encoded_value", unknown_value=-1)
+            return OrdinalEncoder()
+        if encode == "none":
+            return None
+        message = f"Unsupported categorical encoding strategy: {encode}"
+        raise ValueError(message)
 
 
 @dataclass(slots=True)
@@ -158,3 +291,4 @@ class FitTransformPreprocessor(Action):
             message = "Transformed data must be two-dimensional."
             raise RuntimeError(message)
         return cast("NDArray[np.float64]", array)
+

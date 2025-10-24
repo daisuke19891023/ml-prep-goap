@@ -8,7 +8,12 @@ from typing import TYPE_CHECKING, Any, Protocol, cast
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import LinearRegression
 
-from goapml.schemas import Action, ActionSchema
+from goapml.schemas import (
+    Action,
+    ActionSchema,
+    PREDICT_SCHEMA,
+    TRAIN_MODEL_SCHEMA,
+)
 
 if TYPE_CHECKING:
     from sklearn.base import BaseEstimator
@@ -27,22 +32,6 @@ class _RegressorProtocol(Protocol):
     def fit(self, x: Any, y: Any) -> Any: ...
 
     def predict(self, x: Any) -> PredictionVector: ...
-
-
-TRAIN_MODEL_SCHEMA = ActionSchema(
-    name="train_model",
-    requires={"features_ready"},
-    provides={"trained"},
-    cost=1.0,
-)
-
-
-PREDICT_SCHEMA = ActionSchema(
-    name="predict",
-    requires={"trained"},
-    provides={"predicted"},
-    cost=1.0,
-)
 
 
 @dataclass(slots=True)

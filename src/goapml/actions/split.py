@@ -10,7 +10,12 @@ import pandas as pd
 import numpy as np
 from pandas.api.types import is_numeric_dtype
 
-from goapml.schemas import Action, ActionSchema
+from goapml.schemas import (
+    Action,
+    ActionSchema,
+    SPLIT_XY_SCHEMA,
+    TRAIN_TEST_SPLIT_SCHEMA,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -27,14 +32,6 @@ __all__ = ["SplitXY", "TrainTestSplit"]
 
 _DEFAULT_QUANTILE_BINS = 5
 _MIN_STRATIFY_CLASSES = 2
-
-SPLIT_XY_SCHEMA = ActionSchema(
-    name="split_xy",
-    requires={"target_is_numeric"},
-    provides={"xy_separated"},
-    cost=1.0,
-)
-
 
 @dataclass(slots=True)
 class SplitXY(Action):
@@ -58,14 +55,6 @@ class SplitXY(Action):
         }
         state.add("xy_separated")
         state.logs.append("split_xy")
-
-
-TRAIN_TEST_SPLIT_SCHEMA = ActionSchema(
-    name="train_test_split",
-    requires={"xy_separated"},
-    provides={"split_done"},
-    cost=1.0,
-)
 
 
 @dataclass(slots=True)
