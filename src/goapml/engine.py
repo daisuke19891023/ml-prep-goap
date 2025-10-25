@@ -62,6 +62,15 @@ def execute_with_replanning(
     blocked_actions: set[str] = set()
     last_failure: tuple[str, Exception] | None = None
 
+    _LOGGER.info(
+        "Starting GOAP execution.",
+        extra={
+            "event": "engine_start",
+            "available_actions": [schema.name for schema in base_actions],
+            "goal": sorted(goal.required),
+        },
+    )
+
     while not goal.is_satisfied(state):
         plan_actions = _plan_next_actions(
             base_actions,
@@ -73,6 +82,13 @@ def execute_with_replanning(
         )
 
         if plan_actions is None:
+            _LOGGER.info(
+                "Replanning requested after resolving blocked actions.",
+                extra={
+                    "event": "plan_retry",
+                    "blocked": sorted(blocked_actions),
+                },
+            )
             continue
 
         plan_failed, last_failure = _execute_plan(
@@ -86,9 +102,24 @@ def execute_with_replanning(
         )
 
         if plan_failed:
+            _LOGGER.info(
+                "Plan execution failed; attempting to replan.",
+                extra={
+                    "event": "plan_retry",
+                    "blocked": sorted(blocked_actions),
+                },
+            )
             continue
 
         blocked_actions.clear()
+
+    _LOGGER.info(
+        "Execution completed successfully.",
+        extra={
+            "event": "engine_complete",
+            "executed_actions": list(executed),
+        },
+    )
 
     return executed
 
@@ -120,6 +151,13 @@ def _plan_next_actions(
     """Return the next plan or ``None`` when a replan should be attempted."""
     available_actions = _filter_actions(base_actions, blocked_actions)
     if not available_actions:
+        _LOGGER.error(
+            "No actions available to satisfy the goal.",
+            extra={
+                "event": "planning_failed",
+                "reason": "no_actions",
+            },
+        )
         _raise_planning_error(last_failure, "No actions available to satisfy the goal.")
 
     plan_actions = plan(
@@ -130,12 +168,33 @@ def _plan_next_actions(
     )
 
     if plan_actions:
+        _LOGGER.info(
+            "Plan generated successfully.",
+            extra={
+                "event": "plan_generated",
+                "actions": [schema.name for schema in plan_actions],
+            },
+        )
         return plan_actions
 
     if blocked_actions:
+        _LOGGER.info(
+            "Clearing blocked actions before replanning.",
+            extra={
+                "event": "plan_blocked",
+                "blocked": sorted(blocked_actions),
+            },
+        )
         blocked_actions.clear()
         return None
 
+    _LOGGER.error(
+        "Unable to produce a plan to reach the goal.",
+        extra={
+            "event": "planning_failed",
+            "reason": "no_plan",
+        },
+    )
     _raise_planning_error(last_failure, "Unable to produce a plan to reach the goal.")
     return None
 
@@ -154,16 +213,33 @@ def _execute_plan(
 
     for schema in plan_actions:
         action = registry.get(schema.name)
+        _LOGGER.info(
+            "Executing action.",
+            extra={"event": "action_start", "action": schema.name},
+        )
         try:
             action.run(state, config)
         except Exception as exc:  # pragma: no cover - broad to support replanning
-            _LOGGER.exception("Action '%s' failed during execution.", schema.name)
+            _LOGGER.exception(
+                "Action '%s' failed during execution.",
+                schema.name,
+                extra={"event": "action_failure", "action": schema.name},
+            )
             state.logs.append(
                 f"action_error:{schema.name}:{exc.__class__.__name__}:{exc}",
             )
             failure_counts[schema.name] += 1
             last_failure = (schema.name, exc)
             if failure_counts[schema.name] >= _MAX_CONSECUTIVE_FAILURES:
+                _LOGGER.error(
+                    "Action '%s' exceeded maximum retries.",
+                    schema.name,
+                    extra={
+                        "event": "action_aborted",
+                        "action": schema.name,
+                        "failures": failure_counts[schema.name],
+                    },
+                )
                 raise ActionExecutionError(schema.name, exc) from exc
             blocked_actions.add(schema.name)
             return True, last_failure
@@ -173,6 +249,10 @@ def _execute_plan(
         last_failure = None
         _apply_effects(state, schema)
         executed.append(schema.name)
+        _LOGGER.info(
+            "Action completed successfully.",
+            extra={"event": "action_complete", "action": schema.name},
+        )
 
         if goal.is_satisfied(state):
             return False, None
@@ -187,7 +267,22 @@ def _raise_planning_error(
     """Raise an appropriate planning error based on the recorded failure."""
     if last_failure is not None:
         name, error = last_failure
+        _LOGGER.error(
+            "Raising action execution error due to persistent failure.",
+            extra={
+                "event": "planning_failed",
+                "action": name,
+                "reason": "action_failure",
+            },
+        )
         raise ActionExecutionError(name, error) from error
 
     error_message = message
+    _LOGGER.error(
+        "Raising planning error.",
+        extra={
+            "event": "planning_failed",
+            "reason": "planning_error",
+        },
+    )
     raise PlanningError(error_message)

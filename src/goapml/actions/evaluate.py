@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, ClassVar
@@ -20,6 +21,9 @@ __all__ = ["EVALUATE_SCHEMA", "Evaluate"]
 
 MetricFunc = Callable[[Any, Any], float]
 FloatArray = NDArray[np.float64]
+
+
+_LOGGER = logging.getLogger(__name__)
 
 
 def _ensure_array(values: Any) -> FloatArray:
@@ -74,6 +78,15 @@ class Evaluate(Action):
             message = "Train/test split must be available for evaluation."
             raise RuntimeError(message)
 
+        _LOGGER.info(
+            "Evaluating regression metrics.",
+            extra={
+                "event": "action_step",
+                "action": self.schema.name,
+                "stage": "evaluate",
+                "metrics": list(config.eval.metrics),
+            },
+        )
         _, _, _, y_test = state.split
         metrics_to_compute = config.eval.metrics
 
@@ -90,3 +103,12 @@ class Evaluate(Action):
         state.metrics = metrics
         state.add("evaluated")
         state.logs.append(f"evaluate:{','.join(metrics_to_compute)}")
+        _LOGGER.info(
+            "Evaluation complete.",
+            extra={
+                "event": "action_step",
+                "action": self.schema.name,
+                "stage": "evaluate",
+                "metrics": metrics,
+            },
+        )

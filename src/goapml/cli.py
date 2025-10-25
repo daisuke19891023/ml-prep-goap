@@ -11,6 +11,7 @@ import typer
 from pydantic import ValidationError
 
 from goapml.engine import ExecutionError, execute_with_replanning
+from goapml.logging import configure_logging as configure_structured_logging
 from goapml.models import (
     EvalPolicy,
     FileSpec,
@@ -73,11 +74,8 @@ app = typer.Typer(
 def _configure_logging(level: LogLevel) -> None:
     """Initialise basic logging according to the requested level."""
     mapping = logging.getLevelNamesMapping()
-    numeric_level = mapping.get(level.value, logging.INFO)
-    logging.basicConfig(
-        level=numeric_level,
-        format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
-    )
+    numeric_level = mapping.get(level.value.upper(), logging.INFO)
+    configure_structured_logging(numeric_level)
 
 
 def _normalise_encoding(value: str | None) -> str | None:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -26,6 +27,9 @@ else:
 __all__ = ["DetectEncoding", "LoadCSV"]
 
 
+_LOGGER = logging.getLogger(__name__)
+
+
 _HIRAGANA_START = 0x3040
 _HIRAGANA_END = 0x30FF
 _CJK_UNIFIED_START = 0x4E00
@@ -42,6 +46,16 @@ class DetectEncoding(Action):
         """Populate the state's encoding using configuration or auto-detection."""
         file_path = Path(config.file.path)
         specified = config.file.encoding
+        _LOGGER.info(
+            "Detecting file encoding.",
+            extra={
+                "event": "action_step",
+                "action": self.schema.name,
+                "stage": "detect_encoding",
+                "path": str(file_path),
+                "specified": specified,
+            },
+        )
         encoding = (
             self._normalise_encoding(specified)
             if specified
@@ -51,6 +65,15 @@ class DetectEncoding(Action):
         state.encoding = encoding
         state.add("encoding_detected")
         state.logs.append(f"encoding={encoding}")
+        _LOGGER.info(
+            "Encoding detected successfully.",
+            extra={
+                "event": "action_step",
+                "action": self.schema.name,
+                "stage": "encoding_detected",
+                "encoding": encoding,
+            },
+        )
 
     def _detect_with_chardet(self, path: Path) -> str:
         detector = UniversalDetector()
@@ -116,6 +139,17 @@ class LoadCSV(Action):
         file_path = Path(config.file.path)
         header = 0 if config.file.has_header else None
 
+        _LOGGER.info(
+            "Loading CSV data.",
+            extra={
+                "event": "action_step",
+                "action": self.schema.name,
+                "stage": "load_csv",
+                "path": str(file_path),
+                "delimiter": config.file.delimiter,
+            },
+        )
+
         df = pandas_read_csv(
             file_path,
             encoding=state.encoding,
@@ -127,3 +161,13 @@ class LoadCSV(Action):
         state.df = df
         state.add("csv_loaded")
         state.logs.append(f"csv_shape={df.shape[0]}x{df.shape[1]}")
+        _LOGGER.info(
+            "CSV loaded successfully.",
+            extra={
+                "event": "action_step",
+                "action": self.schema.name,
+                "stage": "csv_loaded",
+                "rows": df.shape[0],
+                "columns": df.shape[1],
+            },
+        )

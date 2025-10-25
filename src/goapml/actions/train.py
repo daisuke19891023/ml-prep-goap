@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
@@ -26,6 +27,9 @@ else:  # pragma: no cover - runtime fallbacks
 __all__ = ["PREDICT_SCHEMA", "TRAIN_MODEL_SCHEMA", "Predict", "TrainModel"]
 
 
+_LOGGER = logging.getLogger(__name__)
+
+
 class _RegressorProtocol(Protocol):
     """Structural protocol for estimators supporting fit and predict."""
 
@@ -46,6 +50,15 @@ class TrainModel(Action):
             message = "Features must be prepared before training the model."
             raise RuntimeError(message)
 
+        _LOGGER.info(
+            "Training regression model.",
+            extra={
+                "event": "action_step",
+                "action": self.schema.name,
+                "stage": "train_model",
+                "model": config.model.kind,
+            },
+        )
         x_train, x_test, y_train, y_test = state.split
         model = self._create_model(config.model)
         regressor = cast("_RegressorProtocol", model)
@@ -55,6 +68,15 @@ class TrainModel(Action):
         state.split = (x_train, x_test, y_train, y_test)
         state.add("trained")
         state.logs.append(f"train_model:{config.model.kind}")
+        _LOGGER.info(
+            "Model training complete.",
+            extra={
+                "event": "action_step",
+                "action": self.schema.name,
+                "stage": "train_model",
+                "model": config.model.kind,
+            },
+        )
 
     def _create_model(self, policy: ModelPolicy) -> BaseEstimator:
         """Return the estimator configured by ``policy``."""
@@ -81,6 +103,14 @@ class Predict(Action):
             message = "Train/test split must be available to make predictions."
             raise RuntimeError(message)
 
+        _LOGGER.info(
+            "Generating predictions.",
+            extra={
+                "event": "action_step",
+                "action": self.schema.name,
+                "stage": "predict",
+            },
+        )
         _, x_test, _, y_test = state.split
         model = cast("_RegressorProtocol", state.model)
         predictions = model.predict(x_test)
@@ -92,3 +122,12 @@ class Predict(Action):
         state.pred = predictions
         state.add("predicted")
         state.logs.append("predict")
+        _LOGGER.info(
+            "Predictions generated.",
+            extra={
+                "event": "action_step",
+                "action": self.schema.name,
+                "stage": "predict",
+                "observations": len(y_test),
+            },
+        )

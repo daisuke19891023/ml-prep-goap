@@ -69,6 +69,14 @@ class CheckMissing(Action):
             message = "Features and target must be separated before checking missingness."
             raise RuntimeError(message)
 
+        _LOGGER.info(
+            "Checking missing values.",
+            extra={
+                "event": "action_step",
+                "action": self.schema.name,
+                "stage": "check_missing",
+            },
+        )
         features, _ = state.xy
         if not hasattr(features, "isna"):
             message = "Feature matrix must be a pandas DataFrame for missing checks."
@@ -94,6 +102,15 @@ class CheckMissing(Action):
             else "none"
         )
         state.logs.append(f"missing_top5:{formatted}")
+        _LOGGER.info(
+            "Computed missing value ratios.",
+            extra={
+                "event": "action_step",
+                "action": self.schema.name,
+                "stage": "check_missing",
+                "top_columns": [column for column, _ in top_five],
+            },
+        )
 
         threshold = config.missing.report_threshold
         exceeding = [item for item in sorted_ratios if item[1] > threshold]
@@ -101,6 +118,12 @@ class CheckMissing(Action):
             warning_details = ", ".join(f"{column}:{ratio:.3f}" for column, ratio in exceeding)
             _LOGGER.warning(
                 "Missing ratios above threshold %.2f: %s", threshold, warning_details,
+                extra={
+                    "event": "action_step",
+                    "action": self.schema.name,
+                    "stage": "check_missing",
+                    "exceeding": [column for column, _ in exceeding],
+                },
             )
 
         state.add("missing_checked")
@@ -118,6 +141,14 @@ class BuildPreprocessor(Action):
             message = "Train/test split must be completed before building the preprocessor."
             raise RuntimeError(message)
 
+        _LOGGER.info(
+            "Building preprocessing pipeline.",
+            extra={
+                "event": "action_step",
+                "action": self.schema.name,
+                "stage": "build_preprocessor",
+            },
+        )
         x_train, _, _, _ = state.split
 
         if not hasattr(x_train, "columns"):
@@ -160,6 +191,16 @@ class BuildPreprocessor(Action):
         state.logs.append(
             "build_preprocessor:"
             f"num={len(numeric_columns)},cat={len(categorical_columns)}",
+        )
+        _LOGGER.info(
+            "Preprocessing pipeline constructed.",
+            extra={
+                "event": "action_step",
+                "action": self.schema.name,
+                "stage": "build_preprocessor",
+                "numeric_columns": len(numeric_columns),
+                "categorical_columns": len(categorical_columns),
+            },
         )
 
     def _build_numeric_pipeline(self, config: PipelineConfig) -> Pipeline:
@@ -254,6 +295,14 @@ class FitTransformPreprocessor(Action):
             message = "Train/test split must be available before preprocessing."
             raise RuntimeError(message)
 
+        _LOGGER.info(
+            "Fitting preprocessing transformer.",
+            extra={
+                "event": "action_step",
+                "action": self.schema.name,
+                "stage": "fit_transform_preprocessor",
+            },
+        )
         x_train, x_test, y_train, y_test = state.split
         preprocessor = cast("_TransformerProtocol", state.preprocessor)
 
@@ -279,6 +328,15 @@ class FitTransformPreprocessor(Action):
         state.split = (train_array, test_array, y_train, y_test)
         state.add("features_ready")
         state.logs.append("fit_transform_preprocessor")
+        _LOGGER.info(
+            "Preprocessing transformer fitted and applied.",
+            extra={
+                "event": "action_step",
+                "action": self.schema.name,
+                "stage": "fit_transform_preprocessor",
+                "features": train_array.shape[1],
+            },
+        )
 
     @staticmethod
     def _as_2d_array(data: Any) -> NDArray[np.float64]:

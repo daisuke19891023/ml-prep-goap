@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, cast
 
@@ -33,6 +34,9 @@ __all__ = ["SplitXY", "TrainTestSplit"]
 _DEFAULT_QUANTILE_BINS = 5
 _MIN_STRATIFY_CLASSES = 2
 
+
+_LOGGER = logging.getLogger(__name__)
+
 @dataclass(slots=True)
 class SplitXY(Action):
     """Split the dataframe into features and target while inferring column types."""
@@ -45,6 +49,15 @@ class SplitXY(Action):
             message = "Target must be validated as numeric before splitting."
             raise RuntimeError(message)
 
+        _LOGGER.info(
+            "Separating features and target.",
+            extra={
+                "event": "action_step",
+                "action": self.schema.name,
+                "stage": "split_xy",
+                "columns": len(state.df.columns),
+            },
+        )
         features = state.df.drop(columns=[state.target])
         target = state.df[state.target]
 
@@ -55,6 +68,15 @@ class SplitXY(Action):
         }
         state.add("xy_separated")
         state.logs.append("split_xy")
+        _LOGGER.info(
+            "Feature/target separation complete.",
+            extra={
+                "event": "action_step",
+                "action": self.schema.name,
+                "stage": "split_xy",
+                "features": len(features.columns),
+            },
+        )
 
 
 @dataclass(slots=True)
@@ -69,6 +91,16 @@ class TrainTestSplit(Action):
             message = "Features and target must be separated before splitting."
             raise RuntimeError(message)
 
+        _LOGGER.info(
+            "Performing train/test split.",
+            extra={
+                "event": "action_step",
+                "action": self.schema.name,
+                "stage": "train_test_split",
+                "test_size": config.split.test_size,
+                "stratify": config.split.stratify_by_target_quantiles,
+            },
+        )
         features, target = state.xy
         split_config = config.split
 
@@ -101,6 +133,16 @@ class TrainTestSplit(Action):
         state.split = cast("TrainTestSplitTuple", (x_train, x_test, y_train, y_test))
         state.add("split_done")
         state.logs.append("train_test_split")
+        _LOGGER.info(
+            "Train/test split complete.",
+            extra={
+                "event": "action_step",
+                "action": self.schema.name,
+                "stage": "train_test_split",
+                "train_rows": len(y_train),
+                "test_rows": len(y_test),
+            },
+        )
 
     @staticmethod
     def _build_stratify_labels(

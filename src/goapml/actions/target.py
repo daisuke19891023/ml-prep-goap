@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, cast
 
@@ -22,6 +23,9 @@ if TYPE_CHECKING:
     from goapml.models import PipelineConfig, TargetSpec, WorldState
 
 __all__ = ["IdentifyTarget", "ValidateTargetNumeric"]
+
+
+_LOGGER = logging.getLogger(__name__)
 
 
 _TARGET_PRIORITY = ("target", "y", "label")
@@ -56,11 +60,29 @@ class IdentifyTarget(Action):
             message = "CSV must be loaded before identifying the target column."
             raise RuntimeError(message)
 
+        _LOGGER.info(
+            "Identifying target column.",
+            extra={
+                "event": "action_step",
+                "action": self.schema.name,
+                "stage": "identify_target",
+                "strategy": config.target.strategy,
+            },
+        )
         target_name = self._resolve_target(state.df, config.target)
 
         state.target = target_name
         state.add("target_identified")
         state.logs.append(f"target:{target_name}")
+        _LOGGER.info(
+            "Target column identified.",
+            extra={
+                "event": "action_step",
+                "action": self.schema.name,
+                "stage": "target_identified",
+                "target": target_name,
+            },
+        )
 
     def _resolve_target(self, df: DataFrame, spec: TargetSpec) -> str:
         """Dispatch to the configured target identification strategy."""
@@ -130,6 +152,15 @@ class ValidateTargetNumeric(Action):
             message = "Target must be identified before numeric validation."
             raise RuntimeError(message)
 
+        _LOGGER.info(
+            "Validating numeric target column.",
+            extra={
+                "event": "action_step",
+                "action": self.schema.name,
+                "stage": "validate_target_numeric",
+                "nan_threshold": self.nan_ratio_threshold,
+            },
+        )
         series = state.df[state.target]
         numeric_values = [_coerce_to_float(value) for value in series]
         total = len(numeric_values)
@@ -141,6 +172,16 @@ class ValidateTargetNumeric(Action):
         nan_ratio = nan_count / total
 
         if nan_ratio > self.nan_ratio_threshold:
+            _LOGGER.warning(
+                "Target numeric validation failed.",
+                extra={
+                    "event": "action_step",
+                    "action": self.schema.name,
+                    "stage": "validate_target_numeric",
+                    "nan_ratio": nan_ratio,
+                    "outcome": "failed",
+                },
+            )
             state.logs.append(
                 f"target_numeric_failed:nan_ratio={nan_ratio:.3f}",
             )
@@ -158,4 +199,15 @@ class ValidateTargetNumeric(Action):
         state.add("target_is_numeric")
         state.logs.append(
             f"target_numeric_ok:nan_ratio={nan_ratio:.3f},imputed=median",
+        )
+        _LOGGER.info(
+            "Target numeric validation succeeded.",
+            extra={
+                "event": "action_step",
+                "action": self.schema.name,
+                "stage": "validate_target_numeric",
+                "nan_ratio": nan_ratio,
+                "imputed_value": median,
+                "outcome": "success",
+            },
         )
