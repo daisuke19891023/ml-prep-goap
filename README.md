@@ -7,8 +7,8 @@ workflow from CSV ingestion through evaluation. The implementation follows the p
 ## Current Status
 
 - ✅ Project scaffold, documentation skeleton, and dependency pins (Task T1).
-- ✅ Pydantic-based `PipelineConfig` definitions with validation (Task T2).
-- ⬜ Subsequent tasks (world state, planner, actions, engine, CLI) pending.
+- ✅ Core GOAP components (configuration, world state, planner, actions, engine).
+- ✅ Typer-powered CLI for executing the end-to-end pipeline (Task T20).
 
 ## Development Setup
 
@@ -23,6 +23,23 @@ uv run nox -s lint
 uv run nox -s typing
 uv run nox -s test
 ```
+
+## CLI Usage
+
+The `goapml` command executes the full CSV ➜ preprocessing ➜ training ➜ evaluation flow.
+
+```bash
+goapml run \
+  --csv ./data.csv \
+  --target SalePrice \
+  --model random_forest \
+  --test-size 0.2 \
+  --metrics r2 rmse mae \
+  --json-out result.json \
+  --log-level INFO
+```
+
+The command prints metrics and action logs to stdout and writes the same payload to the optional JSON file.
 
 ## Documentation
 
