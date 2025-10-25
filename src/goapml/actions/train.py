@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from sklearn.ensemble import RandomForestRegressor
@@ -12,19 +13,31 @@ from sklearn.linear_model import LinearRegression
 from goapml.schemas import (
     Action,
     ActionSchema,
+    PERSIST_ARTIFACTS_SCHEMA,
     PREDICT_SCHEMA,
     TRAIN_MODEL_SCHEMA,
 )
 
 if TYPE_CHECKING:
+    def _joblib_dump(value: Any, filename: str, compress: int = 0, protocol: Any | None = None) -> Any: ...
+
     from sklearn.base import BaseEstimator
 
     from goapml.models import ModelPolicy, PipelineConfig, PredictionVector, WorldState
 else:  # pragma: no cover - runtime fallbacks
+    from joblib import dump as _joblib_dump
+
     BaseEstimator = ModelPolicy = PipelineConfig = WorldState = Any
     PredictionVector = Any
 
-__all__ = ["PREDICT_SCHEMA", "TRAIN_MODEL_SCHEMA", "Predict", "TrainModel"]
+__all__ = [
+    "PERSIST_ARTIFACTS_SCHEMA",
+    "PREDICT_SCHEMA",
+    "TRAIN_MODEL_SCHEMA",
+    "PersistArtifacts",
+    "Predict",
+    "TrainModel",
+]
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -131,3 +144,59 @@ class Predict(Action):
                 "observations": len(y_test),
             },
         )
+
+
+@dataclass(slots=True)
+class PersistArtifacts(Action):
+    """Persist the trained model and fitted preprocessor to disk."""
+
+    schema: ActionSchema = field(default_factory=lambda: PERSIST_ARTIFACTS_SCHEMA)
+
+    def run(self, state: WorldState, config: PipelineConfig) -> None:
+        """Serialise the trained artefacts using joblib."""
+        if state.model is None:
+            message = "A trained model is required before persisting artefacts."
+            raise RuntimeError(message)
+        if state.preprocessor is None:
+            message = "A fitted preprocessor is required before persisting artefacts."
+            raise RuntimeError(message)
+
+        directory = Path(config.artifacts.directory)
+        directory.mkdir(parents=True, exist_ok=True)
+        model_path = directory / config.artifacts.model_filename
+        preprocessor_path = directory / config.artifacts.preprocessor_filename
+
+        _LOGGER.info(
+            "Persisting trained artefacts.",
+            extra={
+                "event": "action_step",
+                "action": self.schema.name,
+                "stage": "persist_artifacts",
+                "directory": str(directory),
+                "model_filename": model_path.name,
+                "preprocessor_filename": preprocessor_path.name,
+            },
+        )
+
+        self._dump(state.model, model_path)
+        self._dump(state.preprocessor, preprocessor_path)
+
+        state.model_path = model_path
+        state.preprocessor_path = preprocessor_path
+        state.add("persisted")
+        state.logs.append(
+            f"persist_artifacts:{model_path.name},{preprocessor_path.name}",
+        )
+
+        _LOGGER.info(
+            "Artefact persistence complete.",
+            extra={
+                "event": "action_step",
+                "action": self.schema.name,
+                "stage": "persist_artifacts",
+            },
+        )
+
+    @staticmethod
+    def _dump(obj: Any, path: Path) -> None:
+        _joblib_dump(obj, str(path))

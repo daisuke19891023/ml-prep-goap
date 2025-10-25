@@ -2,16 +2,34 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import pytest
 
-from goapml.actions.train import Predict, TrainModel
-from goapml.models import FileSpec, ModelPolicy, PipelineConfig, WorldState
+from sklearn.preprocessing import StandardScaler
+
+from goapml.actions.train import PersistArtifacts, Predict, TrainModel
+from goapml.models import (
+    ArtifactSpec,
+    FileSpec,
+    ModelPolicy,
+    PipelineConfig,
+    WorldState,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    from numpy.typing import NDArray
+
+    def _joblib_load(
+        filename: str,
+        mmap_mode: str | None = None,
+        ensure_native_byte_order: str = "auto",
+    ) -> Any: ...
+else:  # pragma: no cover - runtime import
+    from joblib import load as _joblib_load
 
 
 @pytest.fixture
@@ -28,7 +46,10 @@ def pipeline_config(tmp_path: Path) -> PipelineConfig:
         has_header=True,
     )
 
-    return PipelineConfig(file=file_spec)
+    return PipelineConfig(
+        file=file_spec,
+        artifacts=ArtifactSpec(directory=str(tmp_path / "artifacts")),
+    )
 
 
 def build_state() -> WorldState:
@@ -85,3 +106,66 @@ def test_predict_generates_predictions_matching_target(
     assert len(state.pred) == len(y_test)
     assert state.has("predicted")
     assert state.logs[-1] == "predict"
+
+
+def test_persist_artifacts_round_trip_prediction(
+    pipeline_config: PipelineConfig,
+) -> None:
+    """Persisted artefacts can be reloaded to reproduce predictions."""
+    x_train_raw = np.array([[1.0], [2.0], [3.0]], dtype=float)
+    x_test_raw = np.array([[4.0], [5.0]], dtype=float)
+    y_train = np.array([1.0, 2.0, 3.0], dtype=float)
+    y_test = np.array([4.0, 5.0], dtype=float)
+
+    scaler: Any = StandardScaler()
+    x_train_processed = cast(
+        "NDArray[np.float64]",
+        np.asarray(scaler.fit_transform(x_train_raw), dtype=float),
+    )
+    x_test_processed = cast(
+        "NDArray[np.float64]",
+        np.asarray(scaler.transform(x_test_raw), dtype=float),
+    )
+
+    state = WorldState(
+        split=(x_train_processed, x_test_processed, y_train, y_test),
+        preprocessor=scaler,
+        facts={"features_ready"},
+    )
+
+    TrainModel().run(state, pipeline_config)
+    Predict().run(state, pipeline_config)
+
+    PersistArtifacts().run(state, pipeline_config)
+
+    assert state.has("persisted")
+    assert state.model_path is not None
+    assert state.preprocessor_path is not None
+    assert state.logs[-1] == "persist_artifacts:model.joblib,preprocessor.joblib"
+
+    loaded_model = _joblib_load(str(state.model_path))
+    loaded_preprocessor = _joblib_load(str(state.preprocessor_path))
+
+    transformed_test = cast(
+        "NDArray[np.float64]",
+        loaded_preprocessor.transform(x_test_raw),
+    )
+    reloaded_predictions = cast(
+        "NDArray[np.float64]",
+        loaded_model.predict(transformed_test),
+    )
+
+    assert state.pred is not None
+    baseline_pred = np.asarray(state.pred, dtype=float)
+    np.testing.assert_allclose(reloaded_predictions, baseline_pred)
+
+
+def test_persist_artifacts_requires_preprocessor(
+    pipeline_config: PipelineConfig,
+) -> None:
+    """Persisting artefacts without a preprocessor raises an error."""
+    state = build_state()
+    TrainModel().run(state, pipeline_config)
+
+    with pytest.raises(RuntimeError):
+        PersistArtifacts().run(state, pipeline_config)

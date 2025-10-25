@@ -13,6 +13,7 @@ from pydantic import ValidationError
 from goapml.engine import ExecutionError, execute_with_replanning
 from goapml.logging import configure_logging as configure_structured_logging
 from goapml.models import (
+    ArtifactSpec,
     EvalPolicy,
     FileSpec,
     ModelPolicy,
@@ -236,6 +237,9 @@ def run(
             split=SplitPolicy(test_size=test_size),
             model=ModelPolicy(kind=model.value, params={}),
             eval=EvalPolicy(metrics=metrics_to_use),
+            artifacts=ArtifactSpec(
+                directory=str(csv_path.parent / "artifacts"),
+            ),
         )
     except ValidationError as exc:
         typer.echo("Configuration validation failed:", err=True)
