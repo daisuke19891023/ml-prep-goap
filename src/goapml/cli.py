@@ -7,6 +7,7 @@ import logging
 from pathlib import Path
 from enum import StrEnum
 from typing import Annotated, Literal
+
 import typer
 from pydantic import ValidationError
 
@@ -16,6 +17,7 @@ from goapml.models import (
     ArtifactSpec,
     EvalPolicy,
     FileSpec,
+    ModelKind,
     ModelPolicy,
     PipelineConfig,
     SplitPolicy,
@@ -33,15 +35,6 @@ DEFAULT_METRICS: tuple[MetricLiteral, ...] = ("r2", "rmse", "mae")
 
 
 LOGGER = logging.getLogger(__name__)
-
-
-class ModelKind(StrEnum):
-    """Supported regression model identifiers exposed via the CLI."""
-
-    LINEAR_REGRESSION = "linear_regression"
-    RANDOM_FOREST = "random_forest"
-
-
 class MetricName(StrEnum):
     """Evaluation metrics accepted by the CLI."""
 
@@ -235,7 +228,7 @@ def run(
             ),
             target=TargetSpec(strategy="explicit", name=target),
             split=SplitPolicy(test_size=test_size),
-            model=ModelPolicy(kind=model.value, params={}),
+            model=ModelPolicy(kind=model, params={}),
             eval=EvalPolicy(metrics=metrics_to_use),
             artifacts=ArtifactSpec(
                 directory=str(csv_path.parent / "artifacts"),

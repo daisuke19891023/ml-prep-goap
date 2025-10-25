@@ -7,9 +7,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.linear_model import LinearRegression
-
 from goapml.schemas import (
     Action,
     ActionSchema,
@@ -23,9 +20,17 @@ if TYPE_CHECKING:
 
     from sklearn.base import BaseEstimator
 
-    from goapml.models import ModelPolicy, PipelineConfig, PredictionVector, WorldState
+    from goapml.models import (
+        MODEL_FACTORIES,
+        ModelPolicy,
+        PipelineConfig,
+        PredictionVector,
+        WorldState,
+    )
 else:  # pragma: no cover - runtime fallbacks
     from joblib import dump as _joblib_dump
+
+    from goapml.models import MODEL_FACTORIES
 
     BaseEstimator = ModelPolicy = PipelineConfig = WorldState = Any
     PredictionVector = Any
@@ -93,12 +98,12 @@ class TrainModel(Action):
 
     def _create_model(self, policy: ModelPolicy) -> BaseEstimator:
         """Return the estimator configured by ``policy``."""
-        if policy.kind == "linear_regression":
-            return LinearRegression(**policy.params)
-        if policy.kind == "random_forest":
-            return RandomForestRegressor(**policy.params)
-        message = f"Unsupported model kind: {policy.kind}"
-        raise ValueError(message)
+        try:
+            factory = MODEL_FACTORIES[policy.kind]
+        except KeyError as exc:  # pragma: no cover - defensive guard
+            message = f"Unsupported model kind: {policy.kind}"
+            raise ValueError(message) from exc
+        return factory(policy.params)
 
 
 @dataclass(slots=True)

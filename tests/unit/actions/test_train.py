@@ -13,6 +13,7 @@ from goapml.actions.train import PersistArtifacts, Predict, TrainModel
 from goapml.models import (
     ArtifactSpec,
     FileSpec,
+    ModelKind,
     ModelPolicy,
     PipelineConfig,
     WorldState,
@@ -80,7 +81,10 @@ def test_train_model_linear_regression_fits_and_logs(
 def test_train_model_supports_random_forest(pipeline_config: PipelineConfig) -> None:
     """Random forest models are instantiated using provided parameters."""
     state = build_state()
-    model_policy = ModelPolicy(kind="random_forest", params={"n_estimators": 5, "random_state": 0})
+    model_policy = ModelPolicy(
+        kind=ModelKind.RANDOM_FOREST,
+        params={"n_estimators": 5, "random_state": 0},
+    )
     config = pipeline_config.model_copy(update={"model": model_policy})
 
     TrainModel().run(state, config)
