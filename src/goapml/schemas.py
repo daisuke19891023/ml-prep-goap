@@ -149,6 +149,14 @@ EVALUATE_SCHEMA = ActionSchema(
 )
 
 
+PERSIST_ARTIFACTS_SCHEMA = ActionSchema(
+    name="persist_artifacts",
+    requires={"trained"},
+    provides={"persisted"},
+    cost=1.0,
+)
+
+
 STANDARD_ACTION_SCHEMAS: tuple[ActionSchema, ...] = (
     DETECT_ENCODING_SCHEMA,
     LOAD_CSV_SCHEMA,
@@ -160,6 +168,7 @@ STANDARD_ACTION_SCHEMAS: tuple[ActionSchema, ...] = (
     BUILD_PREPROCESSOR_SCHEMA,
     FIT_TRANSFORM_PREPROCESSOR_SCHEMA,
     TRAIN_MODEL_SCHEMA,
+    PERSIST_ARTIFACTS_SCHEMA,
     PREDICT_SCHEMA,
     EVALUATE_SCHEMA,
 )

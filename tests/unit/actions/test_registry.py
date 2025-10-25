@@ -100,6 +100,7 @@ DEFAULT_ACTION_NAMES = [
     "build_preprocessor",
     "fit_transform_preprocessor",
     "train_model",
+    "persist_artifacts",
     "predict",
     "evaluate",
 ]

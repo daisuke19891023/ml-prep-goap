@@ -132,6 +132,14 @@ class EvalPolicy(BaseModel):
     )
 
 
+class ArtifactSpec(BaseModel):
+    """Configure persistence for trained artefacts."""
+
+    directory: str = Field(default="artifacts", min_length=1)
+    model_filename: str = Field(default="model.joblib", min_length=1)
+    preprocessor_filename: str = Field(default="preprocessor.joblib", min_length=1)
+
+
 class PlannerPolicy(BaseModel):
     """Planner configuration for the GOAP A* search."""
 
@@ -153,6 +161,7 @@ class PipelineConfig(BaseModel):
     split: SplitPolicy = SplitPolicy()
     model: ModelPolicy = ModelPolicy()
     eval: EvalPolicy = EvalPolicy()
+    artifacts: ArtifactSpec = ArtifactSpec()
     planner: PlannerPolicy = PlannerPolicy()
 
 
@@ -172,6 +181,8 @@ class WorldState:
     pred: PredictionVector | None = None
     metrics: dict[str, float] | None = None
     logs: list[str] = field(default_factory=_empty_log_list)
+    model_path: Path | None = None
+    preprocessor_path: Path | None = None
 
     def has(self, fact: str) -> bool:
         """Return whether the state currently holds a fact."""

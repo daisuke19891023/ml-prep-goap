@@ -13,7 +13,7 @@ from goapml.actions.preprocess import (
 )
 from goapml.actions.split import SplitXY, TrainTestSplit
 from goapml.actions.target import IdentifyTarget, ValidateTargetNumeric
-from goapml.actions.train import Predict, TrainModel
+from goapml.actions.train import PersistArtifacts, Predict, TrainModel
 
 import goapml.schemas as action_schemas
 from pydantic import BaseModel, ConfigDict
@@ -129,6 +129,7 @@ def _register_default_actions() -> None:
         BuildPreprocessor(),
         FitTransformPreprocessor(),
         TrainModel(),
+        PersistArtifacts(),
         Predict(),
         Evaluate(),
     ]
