@@ -35,7 +35,7 @@ predictions for a validation split, and compute regression metrics such as R², 
 | T19 | Action Declarations | Register standard action schemas. | ⬜ Pending |
 | T20 | CLI | Typer-based interface for running the pipeline. | ⬜ Pending |
 | T21 | End-to-End Test | Synthetic dataset regression validation. | ⬜ Pending |
-| T22 | Logging | Structured logging integration. | ⬜ Pending |
+| T22 | Logging | Structured logging integration. | ✅ Completed |
 | T23 | Type & Lint | Static analysis and formatting enforcement. | ⬜ Pending |
 | T24 | Persist Artifacts (optional) | Persist model and preprocessor with joblib. | ⬜ Pending |
 | T25 | Model Selection (optional) | Search over hyper-parameters. | ⬜ Pending |
