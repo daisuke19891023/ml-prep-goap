@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal, cast
+from typing import TYPE_CHECKING, Literal, cast
 
 import pytest
-from pandas import DataFrame, Series
 from sklearn.datasets import load_breast_cancer, load_digits, load_wine
 
 from goapml.engine import execute_with_replanning
@@ -20,6 +19,10 @@ from goapml.models import (
     WorldState,
 )
 from goapml.schemas import Goal
+
+
+if TYPE_CHECKING:
+    from pandas import DataFrame, Series
 
 
 def _run_pipeline(
@@ -66,7 +69,7 @@ def test_end_to_end_synthetic_csv() -> None:
 def test_end_to_end_wine_label_regression(tmp_path: Path) -> None:
     """Predicting wine class labels as a regression problem should yield high R²."""
     raw_features, raw_target = cast(
-        tuple[DataFrame, Series],
+        "tuple[DataFrame, Series]",
         load_wine(as_frame=True, return_X_y=True),
     )
     features = raw_features.copy()
@@ -89,7 +92,7 @@ def test_end_to_end_wine_label_regression(tmp_path: Path) -> None:
 def test_end_to_end_breast_cancer_label_regression(tmp_path: Path) -> None:
     """Breast cancer labels treated as regression should remain highly predictable."""
     raw_features, raw_target = cast(
-        tuple[DataFrame, Series],
+        "tuple[DataFrame, Series]",
         load_breast_cancer(as_frame=True, return_X_y=True),
     )
     features = raw_features.copy()
@@ -112,7 +115,7 @@ def test_end_to_end_breast_cancer_label_regression(tmp_path: Path) -> None:
 def test_end_to_end_digits_label_regression(tmp_path: Path) -> None:
     """Digit labels formulated as a regression task should surpass the success threshold."""
     raw_features, raw_target = cast(
-        tuple[DataFrame, Series],
+        "tuple[DataFrame, Series]",
         load_digits(as_frame=True, return_X_y=True),
     )
     features = raw_features.copy()
