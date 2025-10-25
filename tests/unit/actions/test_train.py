@@ -9,8 +9,6 @@ import pytest
 
 from sklearn.preprocessing import StandardScaler
 
-from numpy.typing import NDArray
-
 from goapml.actions.train import PersistArtifacts, Predict, TrainModel
 from goapml.models import (
     ArtifactSpec,
@@ -22,6 +20,8 @@ from goapml.models import (
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    from numpy.typing import NDArray
 
     def _joblib_load(
         filename: str,
@@ -119,11 +119,11 @@ def test_persist_artifacts_round_trip_prediction(
 
     scaler: Any = StandardScaler()
     x_train_processed = cast(
-        NDArray[np.float64],
+        "NDArray[np.float64]",
         np.asarray(scaler.fit_transform(x_train_raw), dtype=float),
     )
     x_test_processed = cast(
-        NDArray[np.float64],
+        "NDArray[np.float64]",
         np.asarray(scaler.transform(x_test_raw), dtype=float),
     )
 
@@ -147,11 +147,11 @@ def test_persist_artifacts_round_trip_prediction(
     loaded_preprocessor = _joblib_load(str(state.preprocessor_path))
 
     transformed_test = cast(
-        NDArray[np.float64],
+        "NDArray[np.float64]",
         loaded_preprocessor.transform(x_test_raw),
     )
     reloaded_predictions = cast(
-        NDArray[np.float64],
+        "NDArray[np.float64]",
         loaded_model.predict(transformed_test),
     )
 
