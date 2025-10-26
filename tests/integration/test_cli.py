@@ -32,7 +32,6 @@ def test_cli_run_creates_json_result(tmp_path: Path) -> None:
     result = runner.invoke(
         app,
         [
-            "run",
             "--csv",
             str(csv_path),
             "--target",
@@ -41,6 +40,7 @@ def test_cli_run_creates_json_result(tmp_path: Path) -> None:
             "linear_regression",
             "--metrics",
             "r2",
+            "--metrics",
             "rmse",
             "--json-out",
             str(json_path),

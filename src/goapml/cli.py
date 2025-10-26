@@ -6,7 +6,7 @@ import json
 import logging
 from pathlib import Path
 from enum import StrEnum
-from typing import Annotated, Literal
+from typing import TYPE_CHECKING, Annotated, Literal, cast
 import typer
 from pydantic import ValidationError
 
@@ -30,6 +30,24 @@ __all__ = ["app"]
 MetricLiteral = Literal["r2", "rmse", "mae"]
 
 DEFAULT_METRICS: tuple[MetricLiteral, ...] = ("r2", "rmse", "mae")
+
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+    from typer.models import OptionInfo
+
+
+def _metrics_option(**kwargs: object) -> OptionInfo:
+    """Return a ``typer.Option`` for metrics while accepting ``multiple``."""
+    help_text = cast("str", kwargs.pop("help"))
+    metavar = cast("str", kwargs.pop("metavar"))
+    kwargs.pop("multiple", None)
+    case_sensitive = cast("bool", kwargs.pop("case_sensitive"))
+    return typer.Option(
+        help=help_text,
+        metavar=metavar,
+        case_sensitive=case_sensitive,
+    )
 
 
 LOGGER = logging.getLogger(__name__)
@@ -87,31 +105,11 @@ def _normalise_encoding(value: str | None) -> str | None:
     return stripped or None
 
 
-def _metrics_or_default(metrics: tuple[MetricName, ...] | None) -> list[MetricLiteral]:
+def _metrics_or_default(metrics: Sequence[MetricName] | None) -> list[MetricLiteral]:
     """Return the requested metrics or the default list when omitted."""
     if metrics is None or not metrics:
         return list(DEFAULT_METRICS)
     return [metric.literal for metric in metrics]
-
-
-def _coerce_extra_metrics(values: tuple[str, ...]) -> tuple[MetricName, ...]:
-    """Convert additional CLI args into ``MetricName`` values."""
-    extras: list[MetricName] = []
-    for arg in values:
-        if arg == "run":
-            continue
-        if arg.startswith("--"):
-            message = f"Unexpected option passed after metrics: {arg}"
-            raise typer.BadParameter(message, param_hint="metrics")
-        if arg.startswith("-"):
-            message = f"Unexpected option passed after metrics: {arg}"
-            raise typer.BadParameter(message, param_hint="metrics")
-        try:
-            extras.append(MetricName(arg))
-        except ValueError as exc:
-            message = f"Unsupported metric requested: {arg}"
-            raise typer.BadParameter(message, param_hint="metrics") from exc
-    return tuple(extras)
 
 
 def _emit_json(payload: dict[str, object], json_out: Path | None) -> None:
@@ -152,9 +150,8 @@ def _build_failure_payload(
     }
 
 
-@app.command(context_settings={"allow_extra_args": True})
+@app.command()
 def run(
-    ctx: typer.Context,
     *,
     csv: Annotated[
         Path,
@@ -197,10 +194,12 @@ def run(
         typer.Option(help="Validation split ratio between 0.05 and 0.5."),
     ] = 0.2,
     metrics: Annotated[
-        MetricName | None,
-        typer.Option(
+        list[MetricName] | None,
+        _metrics_option(
             help="Evaluation metrics to compute.",
             metavar="METRIC",
+            multiple=True,
+            case_sensitive=False,
         ),
     ] = None,
     json_out: Annotated[
@@ -218,10 +217,7 @@ def run(
     state = WorldState(facts={"file_exists"})
     goal = Goal(required={"evaluated"})
 
-    option_metrics = (metrics,) if metrics is not None else ()
-    extra_metrics = _coerce_extra_metrics(tuple(ctx.args))
-    all_metrics = option_metrics + extra_metrics
-    metrics_to_use = _metrics_or_default(all_metrics if all_metrics else None)
+    metrics_to_use = _metrics_or_default(metrics)
 
     try:
         csv_path = Path(csv)
