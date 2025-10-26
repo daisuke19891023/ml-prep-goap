@@ -278,9 +278,8 @@ def run(
             split=SplitPolicy(test_size=test_size),
             model=ModelPolicy(kind=model, params={}),
             eval=EvalPolicy(metrics=metrics_to_use),
-            artifacts=ArtifactSpec(
-                directory=str(csv_path.parent / "artifacts"),
-            ),
+            artifacts_root=csv_path.parent,
+            artifacts=ArtifactSpec(directory="artifacts"),
         )
     except ValidationError as exc:
         typer.echo("Configuration validation failed:", err=True)

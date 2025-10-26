@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol, cast
+from typing import IO, TYPE_CHECKING, Any, Protocol, cast
 
 from goapml.schemas import (
     Action,
@@ -16,10 +16,16 @@ from goapml.schemas import (
 )
 
 if TYPE_CHECKING:
-    def _joblib_dump(value: Any, filename: str, compress: int = 0, protocol: Any | None = None) -> Any: ...
+    def _joblib_dump(
+        value: Any,
+        filename: str | IO[bytes],
+        compress: int = 0,
+        protocol: Any | None = None,
+    ) -> Any: ...
 
     from sklearn.base import BaseEstimator
 
+    from pathlib import Path
     from goapml.models import (
         MODEL_FACTORIES,
         ModelPolicy,
@@ -166,10 +172,8 @@ class PersistArtifacts(Action):
             message = "A fitted preprocessor is required before persisting artefacts."
             raise RuntimeError(message)
 
-        directory = Path(config.artifacts.directory)
+        directory, model_path, preprocessor_path = config.resolve_artifact_paths()
         directory.mkdir(parents=True, exist_ok=True)
-        model_path = directory / config.artifacts.model_filename
-        preprocessor_path = directory / config.artifacts.preprocessor_filename
 
         _LOGGER.info(
             "Persisting trained artefacts.",
@@ -204,4 +208,23 @@ class PersistArtifacts(Action):
 
     @staticmethod
     def _dump(obj: Any, path: Path) -> None:
-        _joblib_dump(obj, str(path))
+        required_flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW
+        file_path = os.fspath(path)
+        message = f"Failed to persist artefact: {path}"
+
+        try:
+            fd = os.open(file_path, required_flags, 0o600)
+        except OSError as exc:  # pragma: no cover - escalated for observability
+            raise RuntimeError(message) from exc
+
+        try:
+            file_obj = cast("IO[bytes]", os.fdopen(fd, "wb"))
+        except OSError as exc:  # pragma: no cover - escalated for observability
+            os.close(fd)
+            raise RuntimeError(message) from exc
+
+        with file_obj:
+            try:
+                _joblib_dump(obj, file_obj)
+            except OSError as exc:  # pragma: no cover - escalated for observability
+                raise RuntimeError(message) from exc

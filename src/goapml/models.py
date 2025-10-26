@@ -3,12 +3,12 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
-from pathlib import Path
 from enum import StrEnum
+from pathlib import Path, PurePath
 from typing import TYPE_CHECKING, Any, Literal
 
 from numpy.typing import NDArray
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 _MIN_TEST_SIZE = 0.05
@@ -167,6 +167,46 @@ class ArtifactSpec(BaseModel):
     model_filename: str = Field(default="model.joblib", min_length=1)
     preprocessor_filename: str = Field(default="preprocessor.joblib", min_length=1)
 
+    @field_validator("directory")
+    @classmethod
+    def validate_directory(cls, value: str) -> str:
+        """Ensure the artefact directory is a safe relative path."""
+        path = PurePath(value)
+        if path.is_absolute():
+            message = "Artifact directory must be a relative path."
+            raise ValueError(message)
+        if any(part == ".." for part in path.parts):
+            message = "Artifact directory must not contain '..'."
+            raise ValueError(message)
+        return value
+
+    @field_validator("model_filename", "preprocessor_filename")
+    @classmethod
+    def validate_filename(cls, value: str) -> str:
+        """Ensure artefact filenames do not escape the target directory."""
+        path = PurePath(value)
+        if path.is_absolute():
+            message = "Artifact filename must be a relative name."
+            raise ValueError(message)
+        if any(part == ".." for part in path.parts):
+            message = "Artifact filename must not contain '..'."
+            raise ValueError(message)
+        if len(path.parts) != 1:
+            message = "Artifact filename must not contain path separators."
+            raise ValueError(message)
+        return value
+
+    def resolve_directory(self, root: Path) -> Path:
+        """Return the artefact directory resolved under ``root``."""
+        base = root.resolve()
+        resolved = (base / PurePath(self.directory)).resolve()
+        try:
+            resolved.relative_to(base)
+        except ValueError as exc:  # pragma: no cover - defensive guard
+            message = "Artifact directory escapes the configured output root."
+            raise ValueError(message) from exc
+        return resolved
+
 
 class PlannerPolicy(BaseModel):
     """Planner configuration for the GOAP A* search."""
@@ -181,6 +221,7 @@ class PipelineConfig(BaseModel):
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
+    artifacts_root: Path = Field(default_factory=Path.cwd)
     file: FileSpec
     target: TargetSpec = TargetSpec()
     missing: MissingPolicy = MissingPolicy()
@@ -191,6 +232,24 @@ class PipelineConfig(BaseModel):
     eval: EvalPolicy = EvalPolicy()
     artifacts: ArtifactSpec = ArtifactSpec()
     planner: PlannerPolicy = PlannerPolicy()
+
+    @model_validator(mode="after")
+    def validate_artifact_directory(self) -> PipelineConfig:
+        """Ensure artefact paths remain within the configured output root."""
+        # Trigger resolution to validate the configuration eagerly.
+        _ = self.resolve_artifact_directory()
+        return self
+
+    def resolve_artifact_directory(self) -> Path:
+        """Return the directory where artefacts should be stored."""
+        return self.artifacts.resolve_directory(Path(self.artifacts_root))
+
+    def resolve_artifact_paths(self) -> tuple[Path, Path, Path]:
+        """Return resolved paths for the artefact directory and files."""
+        directory = self.resolve_artifact_directory()
+        model_path = directory / self.artifacts.model_filename
+        preprocessor_path = directory / self.artifacts.preprocessor_filename
+        return directory, model_path, preprocessor_path
 
 
 @dataclass(slots=True)

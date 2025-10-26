@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
@@ -18,10 +19,9 @@ from goapml.models import (
     PipelineConfig,
     WorldState,
 )
+from pydantic import ValidationError
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from numpy.typing import NDArray
 
     def _joblib_load(
@@ -49,7 +49,20 @@ def pipeline_config(tmp_path: Path) -> PipelineConfig:
 
     return PipelineConfig(
         file=file_spec,
-        artifacts=ArtifactSpec(directory=str(tmp_path / "artifacts")),
+        artifacts_root=tmp_path,
+        artifacts=ArtifactSpec(directory="artifacts"),
+    )
+
+
+def _build_file_spec(tmp_path: Path) -> FileSpec:
+    csv_path = tmp_path / "dataset.csv"
+    csv_path.write_text("feature,target\n1,1\n", encoding="utf-8")
+    return FileSpec(
+        path=str(csv_path),
+        encoding=None,
+        delimiter=",",
+        decimal=".",
+        has_header=True,
     )
 
 
@@ -60,6 +73,108 @@ def build_state() -> WorldState:
     y_train = np.array([1.0, 2.0, 3.0], dtype=float)
     y_test = np.array([4.0, 5.0], dtype=float)
     return WorldState(split=(x_train, x_test, y_train, y_test), facts={"features_ready"})
+
+
+def test_artifact_directory_rejects_absolute_path(tmp_path: Path) -> None:
+    """Absolute artefact directories are rejected during validation."""
+    file_spec = _build_file_spec(tmp_path)
+
+    with pytest.raises(ValidationError) as exc:
+        PipelineConfig(
+            file=file_spec,
+            artifacts_root=tmp_path,
+            artifacts=ArtifactSpec(directory=str(tmp_path / "absolute")),
+        )
+
+    assert "relative path" in str(exc.value)
+
+
+def test_artifact_directory_rejects_parent_escapes(tmp_path: Path) -> None:
+    """Directories using ``..`` are refused."""
+    file_spec = _build_file_spec(tmp_path)
+
+    with pytest.raises(ValidationError) as exc:
+        PipelineConfig(
+            file=file_spec,
+            artifacts_root=tmp_path,
+            artifacts=ArtifactSpec(directory="../escape"),
+        )
+
+    assert "must not contain '..'" in str(exc.value)
+
+
+def test_artifact_directory_rejects_symlinks(tmp_path: Path) -> None:
+    """Symlinked artefact directories escaping the root are rejected."""
+    file_spec = _build_file_spec(tmp_path)
+    root = tmp_path / "output"
+    root.mkdir()
+    link = root / "link"
+    target = tmp_path.parent
+    try:
+        link.symlink_to(target)
+    except OSError as exc:  # pragma: no cover - platform without symlink support
+        pytest.skip(f"symlink not supported on this platform: {exc}")
+
+    with pytest.raises(ValidationError) as exc:
+        PipelineConfig(
+            file=file_spec,
+            artifacts_root=root,
+            artifacts=ArtifactSpec(directory="link"),
+        )
+
+    assert "escapes the configured output root" in str(exc.value)
+
+
+def test_resolve_artifact_paths_returns_safe_locations(
+    pipeline_config: PipelineConfig,
+) -> None:
+    """Resolved artefact paths remain under the configured root."""
+    directory, model_path, preprocessor_path = pipeline_config.resolve_artifact_paths()
+    root = Path(pipeline_config.artifacts_root).resolve()
+
+    assert directory.is_absolute()
+    assert directory.parent == root
+    assert model_path.parent == directory
+    assert model_path.name == pipeline_config.artifacts.model_filename
+    assert preprocessor_path.parent == directory
+    assert (
+        preprocessor_path.name == pipeline_config.artifacts.preprocessor_filename
+    )
+
+
+def test_persist_artifacts_rejects_symlink_targets(
+    pipeline_config: PipelineConfig,
+) -> None:
+    """Symlinked artefact files are not overwritten."""
+    x_train = np.array([[1.0], [2.0], [3.0]], dtype=float)
+    x_test = np.array([[4.0], [5.0]], dtype=float)
+    y_train = np.array([1.0, 2.0, 3.0], dtype=float)
+    y_test = np.array([4.0, 5.0], dtype=float)
+
+    scaler: Any = StandardScaler()
+    scaler.fit(x_train)
+
+    state = WorldState(
+        split=(x_train, x_test, y_train, y_test),
+        preprocessor=scaler,
+        facts={"features_ready"},
+    )
+
+    TrainModel().run(state, pipeline_config)
+
+    directory, model_path, _ = pipeline_config.resolve_artifact_paths()
+    directory.mkdir(parents=True, exist_ok=True)
+    outside = Path(pipeline_config.artifacts_root).resolve().parent / "outside.joblib"
+    outside.write_bytes(b"outside")
+    try:
+        model_path.symlink_to(outside)
+    except OSError as exc:  # pragma: no cover - platform without symlink support
+        pytest.skip(f"symlink not supported on this platform: {exc}")
+
+    with pytest.raises(RuntimeError) as exc:
+        PersistArtifacts().run(state, pipeline_config)
+
+    assert "Failed to persist artefact" in str(exc.value)
 
 
 def test_train_model_linear_regression_fits_and_logs(
