@@ -158,6 +158,9 @@ class LoadCSV(Action):
             header=header,
         )
 
+        if not config.file.has_header:
+            df.columns = [str(col) for col in df.columns]
+
         state.df = df
         state.add("csv_loaded")
         state.logs.append(f"csv_shape={df.shape[0]}x{df.shape[1]}")
