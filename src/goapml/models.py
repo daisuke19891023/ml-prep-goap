@@ -12,7 +12,6 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
-    PositiveInt,
     ValidationError,
     field_validator,
     model_validator,
@@ -84,6 +83,16 @@ MODEL_FACTORIES: dict[ModelKind, ModelFactory] = {
 }
 
 
+def _validate_n_jobs(value: int | None) -> int | None:
+    """Ensure ``n_jobs`` remains within a safe subset of accepted values."""
+    if value is None:
+        return None
+    if value == -1 or value >= 1:
+        return value
+    message = "n_jobs must be -1 or a positive integer"
+    raise ValueError(message)
+
+
 class LinearRegressionParams(BaseModel):
     """Allow-list safe parameters for ``LinearRegression``."""
 
@@ -97,7 +106,13 @@ class LinearRegressionParams(BaseModel):
         serialization_alias="copy_X",
     )
     positive: bool | None = None
-    n_jobs: PositiveInt | None = None
+    n_jobs: int | None = None
+
+    @field_validator("n_jobs")
+    @classmethod
+    def validate_n_jobs(cls, value: int | None) -> int | None:
+        """Permit the standard scikit-learn values for ``n_jobs``."""
+        return _validate_n_jobs(value)
 
 
 MaxFeaturesType = (
@@ -113,7 +128,7 @@ class RandomForestParams(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    n_estimators: Annotated[int, Field(ge=10, le=500)] | None = None
+    n_estimators: Annotated[int, Field(ge=1, le=500)] | None = None
     criterion: (
         Literal["squared_error", "absolute_error", "friedman_mse", "poisson"] | None
     ) = None
@@ -123,7 +138,13 @@ class RandomForestParams(BaseModel):
     min_samples_leaf: Annotated[int, Field(ge=1, le=1000)] | None = None
     bootstrap: bool | None = None
     random_state: Annotated[int, Field(ge=0)] | None = None
-    n_jobs: PositiveInt | None = None
+    n_jobs: int | None = None
+
+    @field_validator("n_jobs")
+    @classmethod
+    def validate_n_jobs(cls, value: int | None) -> int | None:
+        """Permit the standard scikit-learn values for ``n_jobs``."""
+        return _validate_n_jobs(value)
 
 
 MODEL_PARAM_SCHEMAS: dict[ModelKind, type[BaseModel]] = {
@@ -248,7 +269,17 @@ class ModelPolicy(BaseModel):
         try:
             parsed = schema.model_validate(self.params)
         except ValidationError as exc:
-            message = f"Invalid parameters for {self.kind}: {exc}"
+            extras = sorted(
+                str(error["loc"][0])
+                for error in exc.errors()
+                if error.get("type") == "extra_forbidden" and error.get("loc")
+            )
+            if extras:
+                joined = ", ".join(extras)
+                message = f"Unsupported parameter(s) for {self.kind.value}: {joined}"
+                raise ValueError(message) from exc
+
+            message = f"Invalid parameters for {self.kind.value}: {exc}"
             raise ValueError(message) from exc
 
         sanitized = parsed.model_dump(
@@ -264,7 +295,7 @@ class ModelPolicy(BaseModel):
         unexpected = sorted(name for name in sanitized if name not in supported)
         if unexpected:
             joined = ", ".join(unexpected)
-            message = f"Unsupported parameter(s) for {self.kind}: {joined}"
+            message = f"Unsupported parameter(s) for {self.kind.value}: {joined}"
             raise ValueError(message)
         return self
 
