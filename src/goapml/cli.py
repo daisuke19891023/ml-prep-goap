@@ -321,8 +321,12 @@ def run(
             artifacts=ArtifactSpec(directory="artifacts"),
         )
     except ValidationError as exc:
-        typer.echo("Configuration validation failed:", err=True)
-        typer.echo(str(exc), err=True)
+        LOGGER.error("Configuration validation failed", exc_info=exc)
+        typer.echo("Configuration validation failed.", err=True)
+        for error in exc.errors():
+            location = ".".join(str(part) for part in error.get("loc", ())) or "<root>"
+            error_type = error.get("type", "value_error")
+            typer.echo(f"- {location}: {error_type}", err=True)
         payload = _build_failure_payload(message="configuration_error", state=state)
         if safe_json_out is not None:
             _emit_json(payload, safe_json_out)
@@ -331,13 +335,15 @@ def run(
     try:
         executed = execute_with_replanning(state=state, config=config, goal=goal)
     except ExecutionError as exc:
-        typer.echo(f"Execution failed: {exc}", err=True)
-        payload = _build_failure_payload(message=str(exc), state=state)
+        LOGGER.error("Execution failed", exc_info=exc)
+        typer.echo("Execution failed. See logs for details.", err=True)
+        payload = _build_failure_payload(message="execution_failed", state=state)
         _emit_json(payload, safe_json_out)
         raise typer.Exit(code=1) from exc
     except Exception as exc:  # pragma: no cover - unexpected failures
         LOGGER.exception("Unhandled exception during pipeline execution")
-        payload = _build_failure_payload(message=str(exc), state=state)
+        typer.echo("An unexpected error occurred. See logs for details.", err=True)
+        payload = _build_failure_payload(message="unexpected_error", state=state)
         _emit_json(payload, safe_json_out)
         raise typer.Exit(code=1) from exc
 
