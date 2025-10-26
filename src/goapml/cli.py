@@ -161,7 +161,15 @@ def _emit_json(payload: dict[str, object], json_out: Path | None) -> None:
             raise typer.Exit(code=1)
 
         target_path = Path(json_out)
-        target_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            message = (
+                "Unable to create directory for JSON output "
+                f"({target_path.parent}): {exc}"
+            )
+            typer.echo(message, err=True)
+            raise typer.Exit(code=1) from exc
 
         absolute_target = target_path.absolute()
         directory_parts = absolute_target.parts[:-1]
