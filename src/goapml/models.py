@@ -1,11 +1,11 @@
 """Core Pydantic models for GOAP-based regression pipelines."""
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path, PurePath
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from numpy.typing import NDArray
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -74,6 +74,23 @@ MODEL_FACTORIES: dict[ModelKind, ModelFactory] = {
     ModelKind.LINEAR_REGRESSION: _linear_regression_factory,
     ModelKind.RANDOM_FOREST: _random_forest_factory,
 }
+
+
+def _collect_supported_model_params() -> dict[ModelKind, frozenset[str]]:
+    """Return a map of estimator kinds to the parameters they accept."""
+    supported: dict[ModelKind, frozenset[str]] = {}
+    for kind, factory in MODEL_FACTORIES.items():
+        estimator = factory({})
+        get_params = getattr(estimator, "get_params", None)
+        if get_params is None:  # pragma: no cover - defensive guard
+            message = f"Estimator for {kind} does not expose get_params()"
+            raise TypeError(message)
+        params = frozenset(str(name) for name in get_params())
+        supported[kind] = params
+    return supported
+
+
+_SUPPORTED_MODEL_PARAMS = _collect_supported_model_params()
 
 
 class FileSpec(BaseModel):
@@ -150,6 +167,33 @@ class ModelPolicy(BaseModel):
 
     kind: ModelKind = ModelKind.LINEAR_REGRESSION
     params: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("params")
+    @classmethod
+    def ensure_string_keys(cls, value: dict[str, Any]) -> dict[str, Any]:
+        """Reject parameter dictionaries with non-string keys."""
+        keys: Iterable[object] = cast("Iterable[object]", value)
+        invalid = [key for key in keys if not isinstance(key, str)]
+        if invalid:
+            joined = ", ".join(map(str, invalid))
+            message = f"Model parameters must use string keys: {joined}"
+            raise TypeError(message)
+        return value
+
+    @model_validator(mode="after")
+    def validate_supported_parameters(self) -> ModelPolicy:
+        """Ensure the provided parameters are accepted by the estimator."""
+        supported = _SUPPORTED_MODEL_PARAMS.get(self.kind)
+        if supported is None:  # pragma: no cover - defensive guard
+            message = f"Unsupported model kind: {self.kind}"
+            raise ValueError(message)
+
+        unexpected = sorted(name for name in self.params if name not in supported)
+        if unexpected:
+            joined = ", ".join(unexpected)
+            message = f"Unsupported parameter(s) for {self.kind}: {joined}"
+            raise ValueError(message)
+        return self
 
 
 class EvalPolicy(BaseModel):

@@ -30,6 +30,9 @@ __all__ = ["DetectEncoding", "LoadCSV"]
 _LOGGER = logging.getLogger(__name__)
 
 
+MAX_SHIFT_JIS_SAMPLE_CHARS = 1_000_000
+
+
 _HIRAGANA_START = 0x3040
 _HIRAGANA_END = 0x30FF
 _CJK_UNIFIED_START = 0x4E00
@@ -100,7 +103,8 @@ class DetectEncoding(Action):
     def _try_shift_jis(self, path: Path) -> str | None:
         for candidate in ("shift_jis", "cp932"):
             try:
-                text = path.read_text(encoding=candidate)
+                with path.open("r", encoding=candidate) as stream:
+                    text = stream.read(MAX_SHIFT_JIS_SAMPLE_CHARS)
             except UnicodeDecodeError:
                 continue
             if self._contains_cjk(text):
