@@ -7,12 +7,14 @@ from typing import TYPE_CHECKING, Any, cast
 import pytest
 from pydantic import ValidationError
 
+import goapml.models
 from goapml.models import (
     FileSpec,
     ModelKind,
     ModelPolicy,
     PipelineConfig,
     SplitPolicy,
+    get_supported_model_params,
 )
 
 if TYPE_CHECKING:
@@ -120,4 +122,36 @@ def test_model_policy_rejects_non_string_parameter_keys(tmp_path: Path) -> None:
         )
 
     assert "Input should be a valid string" in str(exc.value)
+
+
+def test_supported_model_params_uses_schema(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`ModelPolicy` should build allow-lists from schemas without estimator instantiation."""
+    calls: list[ModelKind] = []
+
+    class _SentinelEstimator:
+        def get_params(self) -> dict[str, Any]:  # pragma: no cover - fallback path
+            return {}
+
+    def _recording_factory(_: dict[str, Any]) -> _SentinelEstimator:
+        calls.append(ModelKind.LINEAR_REGRESSION)
+        return _SentinelEstimator()
+
+    def _recording_factory_rf(_: dict[str, Any]) -> _SentinelEstimator:
+        calls.append(ModelKind.RANDOM_FOREST)
+        return _SentinelEstimator()
+
+    monkeypatch.setitem(
+        goapml.models.MODEL_FACTORIES, ModelKind.LINEAR_REGRESSION, _recording_factory,
+    )
+    monkeypatch.setitem(
+        goapml.models.MODEL_FACTORIES, ModelKind.RANDOM_FOREST, _recording_factory_rf,
+    )
+
+    get_supported_model_params.cache_clear()
+
+    ModelPolicy(kind=ModelKind.LINEAR_REGRESSION, params={"fit_intercept": True})
+
+    assert calls == []
+
+    get_supported_model_params.cache_clear()
 
