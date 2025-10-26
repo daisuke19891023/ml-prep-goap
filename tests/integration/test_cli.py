@@ -25,6 +25,16 @@ def _write_sample_csv(path: Path) -> None:
     )
 
 
+def _write_sample_csv_no_header(path: Path) -> None:
+    path.write_text(
+        "1.0,a,10.0\n"
+        "2.0,b,20.0\n"
+        "3.0,a,30.0\n"
+        "4.0,b,40.0\n",
+        encoding="utf-8",
+    )
+
+
 def test_cli_run_creates_json_result() -> None:
     """The CLI should execute the pipeline and persist metrics to JSON."""
     runner = CliRunner()
@@ -57,6 +67,42 @@ def test_cli_run_creates_json_result() -> None:
         assert "r2" in payload["metrics"]
         assert payload["logs"], "expected logs to be recorded"
         assert payload["actions"][-1] == "evaluate"
+
+        if os.name != "nt":
+            mode = stat.S_IMODE(json_path.stat().st_mode)
+            assert mode == 0o600
+
+
+def test_cli_run_supports_headerless_csv() -> None:
+    """The CLI should accept headerless CSV files using column indexes."""
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        csv_path = Path("dataset.csv")
+        json_path = Path("result.json")
+        _write_sample_csv_no_header(csv_path)
+
+        result = runner.invoke(
+            app,
+            [
+                "run",
+                "--csv",
+                str(csv_path),
+                "--target",
+                "0",
+                "--no-header",
+                "--model",
+                "linear_regression",
+                "--metrics",
+                "r2",
+                "--json-out",
+                str(json_path),
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        payload = json.loads(json_path.read_text(encoding="utf-8"))
+        assert payload["status"] == "ok"
+        assert payload["logs"], "expected logs to be recorded"
 
         if os.name != "nt":
             mode = stat.S_IMODE(json_path.stat().st_mode)

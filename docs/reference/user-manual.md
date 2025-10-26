@@ -36,7 +36,7 @@ The command prints a JSON payload to stdout summarising the run. If `--json-out`
 | `--encoding TEXT` | ❌ | Explicit text encoding for the CSV. Leave empty to auto-detect. |
 | `--delimiter TEXT` | ❌ | Field delimiter (default: `,`). |
 | `--decimal TEXT` | ❌ | Decimal separator (default: `.`). |
-| `--header / --no-header` | ❌ | Declare whether the CSV includes a header row (default: header present). |
+| `--header / --no-header` | ❌ | Declare whether the CSV includes a header row (default: header present). When using `--no-header`, address columns by their zero-based index (for example, `--target 0`). |
 | `--model [linear_regression|random_forest|xgboost|...]` | ❌ | Regression algorithm to train (default: linear regression). |
 | `--test-size FLOAT` | ❌ | Validation split fraction between 0.05 and 0.5 (default: 0.2). |
 | `--metrics METRIC ...` | ❌ | One or more evaluation metrics (`r2`, `rmse`, `mae`). When omitted the default trio is used. |
@@ -98,7 +98,7 @@ GOAP（Goal-Oriented Action Planning）回帰パイプラインは、CSV デー�
 | `--encoding TEXT` | ❌ | CSV の文字エンコーディング。空欄で自動判定。 |
 | `--delimiter TEXT` | ❌ | CSV の区切り文字（デフォルトは `,`）。 |
 | `--decimal TEXT` | ❌ | 小数点の区切り文字（デフォルトは `.`）。 |
-| `--header / --no-header` | ❌ | CSV にヘッダー行が含まれるかどうか（デフォルトはヘッダーあり）。 |
+| `--header / --no-header` | ❌ | CSV にヘッダー行が含まれるかどうか（デフォルトはヘッダーあり）。`--no-header` を使う場合は、列を 0 から始まるインデックスで指定します（例: `--target 0`）。 |
 | `--model [linear_regression|random_forest|xgboost|...]` | ❌ | 使用する回帰アルゴリズム（デフォルトは線形回帰）。 |
 | `--test-size FLOAT` | ❌ | 検証用データの割合。0.05〜0.5 の範囲で指定（デフォルトは 0.2）。 |
 | `--metrics METRIC ...` | ❌ | 評価指標（`r2`、`rmse`、`mae` など）を複数指定可能。省略時は標準の 3 指標を計算します。 |
