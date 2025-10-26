@@ -60,7 +60,7 @@ def test_end_to_end_synthetic_csv() -> None:
     data_path = Path("tests/data/tiny_synthetic.csv")
     assert data_path.is_file(), "synthetic CSV must be generated as part of the repository"
 
-    model = ModelPolicy(kind=ModelKind.LINEAR_REGRESSION, params={})
+    model = ModelPolicy(kind=ModelKind.LINEAR_REGRESSION)
     metrics = _run_pipeline(csv_path=data_path, target="target", model_policy=model)
 
     assert metrics["r2"] >= 0.8
@@ -82,7 +82,7 @@ def test_end_to_end_wine_label_regression(tmp_path: Path) -> None:
 
     model = ModelPolicy(
         kind=ModelKind.RANDOM_FOREST,
-        params={"n_estimators": 200, "random_state": 42, "n_jobs": -1},
+        params={"n_estimators": 200, "random_state": 42},
     )
     metrics = _run_pipeline(csv_path=csv_path, target="target", model_policy=model)
 
@@ -105,7 +105,7 @@ def test_end_to_end_breast_cancer_label_regression(tmp_path: Path) -> None:
 
     model = ModelPolicy(
         kind=ModelKind.RANDOM_FOREST,
-        params={"n_estimators": 200, "random_state": 42, "n_jobs": -1},
+        params={"n_estimators": 200, "random_state": 42},
     )
     metrics = _run_pipeline(csv_path=csv_path, target="target", model_policy=model)
 
@@ -128,7 +128,7 @@ def test_end_to_end_digits_label_regression(tmp_path: Path) -> None:
 
     model = ModelPolicy(
         kind=ModelKind.RANDOM_FOREST,
-        params={"n_estimators": 200, "random_state": 42, "n_jobs": -1},
+        params={"n_estimators": 200, "random_state": 42},
     )
     metrics = _run_pipeline(csv_path=csv_path, target="target", model_policy=model)
 

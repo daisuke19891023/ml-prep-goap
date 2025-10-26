@@ -7,11 +7,7 @@ from typing import TYPE_CHECKING
 import pytest
 from pydantic import ValidationError
 
-from goapml.models import (
-    FileSpec,
-    PipelineConfig,
-    SplitPolicy,
-)
+from goapml.models import FileSpec, ModelKind, ModelPolicy, PipelineConfig, SplitPolicy
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -72,4 +68,20 @@ def test_split_policy_enforces_reasonable_test_size(tmp_path: Path) -> None:
         )
 
     assert "test_size must be in [0.05, 0.5)." in str(exc.value)
+
+
+def test_model_policy_rejects_unknown_parameters() -> None:
+    """Model policies reject parameters outside the allow-list."""
+    with pytest.raises(ValidationError) as exc:
+        ModelPolicy(kind=ModelKind.LINEAR_REGRESSION, params={"alpha": 1.0})
+
+    assert "Extra inputs are not permitted" in str(exc.value)
+
+
+def test_model_policy_rejects_unsafe_parallelism() -> None:
+    """Model policies refuse configurations with unsafe parameter values."""
+    with pytest.raises(ValidationError) as exc:
+        ModelPolicy(kind=ModelKind.RANDOM_FOREST, params={"n_jobs": -1})
+
+    assert "Input should be greater than or equal to 1" in str(exc.value)
 

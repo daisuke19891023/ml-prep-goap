@@ -30,6 +30,9 @@ __all__ = ["DetectEncoding", "LoadCSV"]
 _LOGGER = logging.getLogger(__name__)
 
 
+_ENCODING_SAMPLE_LIMIT = 1 << 20  # 1 MiB
+
+
 _HIRAGANA_START = 0x3040
 _HIRAGANA_END = 0x30FF
 _CJK_UNIFIED_START = 0x4E00
@@ -98,10 +101,23 @@ class DetectEncoding(Action):
         return encoding
 
     def _try_shift_jis(self, path: Path) -> str | None:
+        try:
+            with path.open("rb") as buffer:
+                sample = buffer.read(_ENCODING_SAMPLE_LIMIT)
+        except OSError as exc:  # pragma: no cover - filesystem errors are unexpected
+            _LOGGER.debug("Unable to sample file for encoding detection", exc_info=exc)
+            return None
+
+        if not sample:
+            return None
+
         for candidate in ("shift_jis", "cp932"):
             try:
-                text = path.read_text(encoding=candidate)
-            except UnicodeDecodeError:
+                text = sample.decode(candidate, errors="ignore")
+            except LookupError:  # pragma: no cover - defensive guard for missing codecs
+                _LOGGER.debug(
+                    "Candidate encoding %s is unavailable on this platform", candidate,
+                )
                 continue
             if self._contains_cjk(text):
                 return candidate

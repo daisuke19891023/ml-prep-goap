@@ -1,11 +1,11 @@
 """Core Pydantic models for GOAP-based regression pipelines."""
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path, PurePath
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Literal, TypeVar
 
 from numpy.typing import NDArray
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -48,33 +48,35 @@ def _empty_log_list() -> list[str]:
     return []
 
 
-ModelFactory = Callable[[dict[str, Any]], BaseEstimator]
-
-
 class ModelKind(StrEnum):
     """Enumeration of supported regression estimators."""
 
     LINEAR_REGRESSION = "linear_regression"
     RANDOM_FOREST = "random_forest"
 
+class LinearRegressionParams(BaseModel):
+    """Whitelisted parameters for ``LinearRegression`` estimators."""
 
-def _linear_regression_factory(params: dict[str, Any]) -> BaseEstimator:
-    from sklearn.linear_model import LinearRegression
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
-    return LinearRegression(**params)
-
-
-def _random_forest_factory(params: dict[str, Any]) -> BaseEstimator:
-    from sklearn.ensemble import RandomForestRegressor
-
-    return RandomForestRegressor(**params)
+    fit_intercept: bool = True
+    copy_x: bool = Field(default=True, alias="copy_X", serialization_alias="copy_X")
+    positive: bool = False
+    n_jobs: int | None = Field(default=None, ge=1)
 
 
-MODEL_FACTORIES: dict[ModelKind, ModelFactory] = {
-    ModelKind.LINEAR_REGRESSION: _linear_regression_factory,
-    ModelKind.RANDOM_FOREST: _random_forest_factory,
-}
+class RandomForestParams(BaseModel):
+    """Whitelisted parameters for ``RandomForestRegressor`` estimators."""
 
+    model_config = ConfigDict(extra="forbid")
+
+    n_estimators: int = Field(default=100, ge=1, le=1_000)
+    max_depth: int | None = Field(default=None, ge=1, le=1_000)
+    min_samples_split: int = Field(default=2, ge=2, le=1_000)
+    min_samples_leaf: int = Field(default=1, ge=1, le=1_000)
+    bootstrap: bool = True
+    random_state: int | None = None
+    n_jobs: int | None = Field(default=None, ge=1)
 
 class FileSpec(BaseModel):
     """Describe the CSV file that seeds the regression pipeline."""
@@ -145,11 +147,69 @@ class SplitPolicy(BaseModel):
         return value
 
 
+ModelParams = LinearRegressionParams | RandomForestParams
+
+
+_ParamsT = TypeVar("_ParamsT", bound=BaseModel)
+
+
+def _coerce_param_model(
+    value: _ParamsT | BaseModel | Mapping[str, object] | None,
+    schema: type[_ParamsT],
+) -> _ParamsT:
+    """Convert ``value`` into the parameter model defined by ``schema``."""
+    if value is None:
+        return schema()
+    if isinstance(value, schema):
+        return value
+    payload = value.model_dump() if isinstance(value, BaseModel) else dict(value)
+    return schema.model_validate(payload)
+
+
 class ModelPolicy(BaseModel):
     """Describe which regression model to train and its parameters."""
 
     kind: ModelKind = ModelKind.LINEAR_REGRESSION
-    params: dict[str, Any] = Field(default_factory=dict)
+    params: ModelParams | Mapping[str, object] | None = None
+
+    @model_validator(mode="after")
+    def validate_params(self) -> ModelPolicy:
+        """Ensure model parameters conform to the allow-list for each estimator."""
+        if self.kind is ModelKind.LINEAR_REGRESSION:
+            self.params = _coerce_param_model(self.params, LinearRegressionParams)
+        elif self.kind is ModelKind.RANDOM_FOREST:
+            self.params = _coerce_param_model(self.params, RandomForestParams)
+        else:  # pragma: no cover - defensive guard
+            message = f"Unsupported model kind: {self.kind}"
+            raise ValueError(message)
+        return self
+
+    def build_estimator(self) -> BaseEstimator:
+        """Instantiate the configured estimator using validated parameters."""
+        if isinstance(self.params, LinearRegressionParams):
+            from sklearn.linear_model import LinearRegression
+
+            return LinearRegression(
+                fit_intercept=self.params.fit_intercept,
+                copy_X=self.params.copy_x,
+                positive=self.params.positive,
+                n_jobs=self.params.n_jobs,
+            )
+        if isinstance(self.params, RandomForestParams):
+            from sklearn.ensemble import RandomForestRegressor
+
+            return RandomForestRegressor(
+                n_estimators=self.params.n_estimators,
+                max_depth=self.params.max_depth,
+                min_samples_split=self.params.min_samples_split,
+                min_samples_leaf=self.params.min_samples_leaf,
+                bootstrap=self.params.bootstrap,
+                random_state=self.params.random_state,
+                n_jobs=self.params.n_jobs,
+            )
+
+        message = "Model parameters failed validation"
+        raise ValueError(message)
 
 
 class EvalPolicy(BaseModel):

@@ -28,17 +28,9 @@ if TYPE_CHECKING:
     ) -> Any: ...
 
     from sklearn.base import BaseEstimator
-    from goapml.models import (
-        MODEL_FACTORIES,
-        ModelPolicy,
-        PipelineConfig,
-        PredictionVector,
-        WorldState,
-    )
+    from goapml.models import ModelPolicy, PipelineConfig, PredictionVector, WorldState
 else:  # pragma: no cover - runtime fallbacks
     from joblib import dump as _joblib_dump
-
-    from goapml.models import MODEL_FACTORIES
 
     BaseEstimator = ModelPolicy = PipelineConfig = WorldState = Any
     PredictionVector = Any
@@ -106,12 +98,7 @@ class TrainModel(Action):
 
     def _create_model(self, policy: ModelPolicy) -> BaseEstimator:
         """Return the estimator configured by ``policy``."""
-        try:
-            factory = MODEL_FACTORIES[policy.kind]
-        except KeyError as exc:  # pragma: no cover - defensive guard
-            message = f"Unsupported model kind: {policy.kind}"
-            raise ValueError(message) from exc
-        return factory(policy.params)
+        return policy.build_estimator()
 
 
 @dataclass(slots=True)

@@ -323,14 +323,14 @@ def run(
             ),
             target=TargetSpec(strategy="explicit", name=target),
             split=SplitPolicy(test_size=test_size),
-            model=ModelPolicy(kind=model, params={}),
+            model=ModelPolicy(kind=model),
             eval=EvalPolicy(metrics=metrics_to_use),
             artifacts_root=csv_path.parent,
             artifacts=ArtifactSpec(directory="artifacts"),
         )
     except ValidationError as exc:
-        typer.echo("Configuration validation failed:", err=True)
-        typer.echo(str(exc), err=True)
+        typer.echo("Configuration validation failed.", err=True)
+        LOGGER.debug("Configuration validation error", exc_info=exc)
         payload = _build_failure_payload(message="configuration_error", state=state)
         if safe_json_out is not None:
             _emit_json(payload, safe_json_out)
@@ -339,13 +339,15 @@ def run(
     try:
         executed = execute_with_replanning(state=state, config=config, goal=goal)
     except ExecutionError as exc:
-        typer.echo(f"Execution failed: {exc}", err=True)
-        payload = _build_failure_payload(message=str(exc), state=state)
+        LOGGER.error("Execution failed", exc_info=exc)
+        typer.echo("Execution failed due to a pipeline error.", err=True)
+        payload = _build_failure_payload(message="execution_failed", state=state)
         _emit_json(payload, safe_json_out)
         raise typer.Exit(code=1) from exc
     except Exception as exc:  # pragma: no cover - unexpected failures
         LOGGER.exception("Unhandled exception during pipeline execution")
-        payload = _build_failure_payload(message=str(exc), state=state)
+        typer.echo("An unexpected internal error occurred.", err=True)
+        payload = _build_failure_payload(message="internal_error", state=state)
         _emit_json(payload, safe_json_out)
         raise typer.Exit(code=1) from exc
 
