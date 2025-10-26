@@ -43,6 +43,12 @@ The command prints metrics and action logs to stdout and writes the same payload
 If the destination directory for ``--json-out`` changes into a symbolic link while the command runs,
 the CLI aborts instead of writing to an unexpected location.
 
+> [!IMPORTANT]
+> Windows does not currently expose the `os.O_NOFOLLOW` flag or `dir_fd` support required for secure
+> file creation. As a result, ``--json-out`` and the `PersistArtifacts` action are unavailable on that
+> platform until native safeguards become accessible. Run the CLI without ``--json-out`` and disable
+> artifact persistence when executing on Windows.
+
 ## Documentation
 
 - [GOAP Regression Pipeline Plan](docs/reference/plan-and-tasks.md)

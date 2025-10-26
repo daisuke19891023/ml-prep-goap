@@ -177,6 +177,35 @@ def test_persist_artifacts_rejects_symlink_targets(
     assert "Failed to persist artefact" in str(exc.value)
 
 
+def test_persist_artifacts_rejects_platform_without_secure_open(
+    pipeline_config: PipelineConfig,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Platforms without secure os.open support should be rejected."""
+    x_train = np.array([[1.0], [2.0], [3.0]], dtype=float)
+    x_test = np.array([[4.0], [5.0]], dtype=float)
+    y_train = np.array([1.0, 2.0, 3.0], dtype=float)
+    y_test = np.array([4.0, 5.0], dtype=float)
+
+    scaler: Any = StandardScaler()
+    scaler.fit(x_train)
+
+    state = WorldState(
+        split=(x_train, x_test, y_train, y_test),
+        preprocessor=scaler,
+        facts={"features_ready"},
+    )
+
+    TrainModel().run(state, pipeline_config)
+
+    monkeypatch.setattr("goapml.paths.secure_open_supported", lambda: False)
+
+    with pytest.raises(RuntimeError) as exc:
+        PersistArtifacts().run(state, pipeline_config)
+
+    assert "Artifact persistence is unsupported" in str(exc.value)
+
+
 def test_persist_artifacts_rejects_directory_symlink_swap(
     pipeline_config: PipelineConfig,
     monkeypatch: pytest.MonkeyPatch,

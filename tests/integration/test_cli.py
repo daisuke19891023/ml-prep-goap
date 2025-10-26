@@ -118,7 +118,7 @@ def test_cli_run_rejects_symlink_output() -> None:
         )
 
         assert result.exit_code != 0
-        assert "symbolic links" in result.output
+        assert "symbolic links or reparse points" in result.output
 
 
 def test_cli_run_aborts_when_output_directory_becomes_symlink(
@@ -183,3 +183,35 @@ def test_cli_run_aborts_when_output_directory_becomes_symlink(
         assert result.exit_code != 0
         assert "Refusing to write JSON output" in result.output
         assert not json_path.exists()
+
+
+def test_cli_run_rejects_platform_without_secure_open(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Platforms without secure os.open support should be rejected."""
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        csv_path = Path("dataset.csv")
+        json_path = Path("result.json")
+        _write_sample_csv(csv_path)
+
+        monkeypatch.setattr(
+            "goapml.paths.secure_open_supported",
+            lambda: False,
+        )
+
+        result = runner.invoke(
+            app,
+            [
+                "run",
+                "--csv",
+                str(csv_path),
+                "--target",
+                "target",
+                "--json-out",
+                str(json_path),
+            ],
+        )
+
+        assert result.exit_code != 0
+        assert "Secure JSON output (--json-out) is unsupported" in result.output

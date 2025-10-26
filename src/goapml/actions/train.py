@@ -6,7 +6,10 @@ import logging
 import os
 import stat
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import IO, TYPE_CHECKING, Any, Protocol, cast
+
+import goapml.paths as path_utils
 
 from goapml.schemas import (
     Action,
@@ -25,8 +28,6 @@ if TYPE_CHECKING:
     ) -> Any: ...
 
     from sklearn.base import BaseEstimator
-
-    from pathlib import Path
     from goapml.models import (
         MODEL_FACTORIES,
         ModelPolicy,
@@ -174,6 +175,16 @@ class PersistArtifacts(Action):
             raise RuntimeError(message)
 
         directory, model_path, preprocessor_path = config.resolve_artifact_paths()
+
+        base_root = Path(config.artifacts_root).resolve()
+        try:
+            directory = path_utils.ensure_safe_path(base_root, directory)
+            model_path = path_utils.ensure_safe_path(base_root, model_path)
+            preprocessor_path = path_utils.ensure_safe_path(base_root, preprocessor_path)
+        except path_utils.UnsafePathError as exc:
+            message = "Failed to persist artefact directory"
+            raise RuntimeError(message) from exc
+
         directory.mkdir(parents=True, exist_ok=True)
 
         _LOGGER.info(
@@ -187,6 +198,13 @@ class PersistArtifacts(Action):
                 "preprocessor_filename": preprocessor_path.name,
             },
         )
+
+        if not path_utils.secure_open_supported():
+            message = (
+                "Artifact persistence is unsupported on this platform because "
+                "os.O_NOFOLLOW or dir_fd is unavailable."
+            )
+            raise RuntimeError(message)
 
         directory_path = os.fspath(directory)
         directory_message = f"Failed to persist artefact directory: {directory}"
@@ -252,6 +270,13 @@ class PersistArtifacts(Action):
         dir_fd: int,
         display_path: Path,
     ) -> None:
+        if not path_utils.secure_open_supported():
+            message = (
+                "Artifact persistence is unsupported on this platform because "
+                "os.O_NOFOLLOW or dir_fd is unavailable."
+            )
+            raise RuntimeError(message)
+
         required_flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW
         file_path = os.fspath(path)
         message = f"Failed to persist artefact: {display_path}"
