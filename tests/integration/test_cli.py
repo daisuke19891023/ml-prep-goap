@@ -119,3 +119,67 @@ def test_cli_run_rejects_symlink_output() -> None:
 
         assert result.exit_code != 0
         assert "symbolic links" in result.output
+
+
+def test_cli_run_aborts_when_output_directory_becomes_symlink(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The CLI should refuse to write when the destination turns into a symlink."""
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        csv_path = Path("dataset.csv")
+        _write_sample_csv(csv_path)
+
+        json_path = Path("outputs") / "result.json"
+        target_parent = Path.cwd() / json_path.parent
+        sentinel = Path("redirect")
+        sentinel.mkdir()
+
+        replaced = False
+        original_mkdir = Path.mkdir
+
+        def patched_mkdir(
+            self: Path,
+            mode: int = 0o777,
+            parents: bool = False,
+            exist_ok: bool = False,
+        ) -> None:
+            nonlocal replaced
+            result = original_mkdir(self, mode=mode, parents=parents, exist_ok=exist_ok)
+            if not replaced and self == target_parent:
+                replaced = True
+                try:
+                    self.rmdir()
+                    self.symlink_to(sentinel, target_is_directory=True)
+                except OSError:
+                    pytest.skip("symbolic links are not supported on this platform")
+            return result
+
+        monkeypatch.setattr(Path, "mkdir", patched_mkdir)
+
+        def fake_execute_with_replanning(
+            *, state: object, config: object, goal: object,
+        ) -> list[str]:
+            del state, config, goal
+            return ["mock-run"]
+
+        monkeypatch.setattr(
+            "goapml.cli.execute_with_replanning", fake_execute_with_replanning,
+        )
+
+        result = runner.invoke(
+            app,
+            [
+                "run",
+                "--csv",
+                str(csv_path),
+                "--target",
+                "target",
+                "--json-out",
+                str(json_path),
+            ],
+        )
+
+        assert result.exit_code != 0
+        assert "Refusing to write JSON output" in result.output
+        assert not json_path.exists()

@@ -40,6 +40,8 @@ goapml run \
 ```
 
 The command prints metrics and action logs to stdout and writes the same payload to the optional JSON file.
+If the destination directory for ``--json-out`` changes into a symbolic link while the command runs,
+the CLI aborts instead of writing to an unexpected location.
 
 ## Documentation
 
