@@ -189,8 +189,7 @@ class BuildPreprocessor(Action):
         state.preprocessor = preprocessor
         state.add("preprocessor_built")
         state.logs.append(
-            "build_preprocessor:"
-            f"num={len(numeric_columns)},cat={len(categorical_columns)}",
+            f"build_preprocessor:num={len(numeric_columns)},cat={len(categorical_columns)}",
         )
         _LOGGER.info(
             "Preprocessing pipeline constructed.",
