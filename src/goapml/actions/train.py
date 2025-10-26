@@ -211,7 +211,7 @@ class PersistArtifacts(Action):
         try:
             dir_fd = os.open(
                 directory_path,
-                os.O_DIRECTORY | os.O_NOFOLLOW | os.O_PATH,
+                self._directory_open_flags(),
             )
         except OSError as exc:  # pragma: no cover - escalated for observability
             raise RuntimeError(directory_message) from exc
@@ -277,7 +277,12 @@ class PersistArtifacts(Action):
             )
             raise RuntimeError(message)
 
-        required_flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW
+        required_flags = (
+            os.O_WRONLY
+            | os.O_CREAT
+            | os.O_TRUNC
+            | getattr(os, "O_NOFOLLOW", 0)
+        )
         file_path = os.fspath(path)
         message = f"Failed to persist artefact: {display_path}"
 
@@ -297,3 +302,15 @@ class PersistArtifacts(Action):
                 _joblib_dump(obj, file_obj)
             except OSError as exc:  # pragma: no cover - escalated for observability
                 raise RuntimeError(message) from exc
+
+    @staticmethod
+    def _directory_open_flags() -> int:
+        """Return flags used when opening the artefact directory."""
+        flags = (
+            getattr(os, "O_DIRECTORY", 0)
+            | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_PATH", 0)
+        )
+        if not hasattr(os, "O_PATH"):
+            flags |= os.O_RDONLY
+        return flags
