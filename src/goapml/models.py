@@ -1,10 +1,10 @@
 """Core Pydantic models for GOAP-based regression pipelines."""
-
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
+from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Literal
 
 from numpy.typing import NDArray
@@ -46,6 +46,34 @@ def _empty_fact_set() -> set[str]:
 
 def _empty_log_list() -> list[str]:
     return []
+
+
+ModelFactory = Callable[[dict[str, Any]], BaseEstimator]
+
+
+class ModelKind(StrEnum):
+    """Enumeration of supported regression estimators."""
+
+    LINEAR_REGRESSION = "linear_regression"
+    RANDOM_FOREST = "random_forest"
+
+
+def _linear_regression_factory(params: dict[str, Any]) -> BaseEstimator:
+    from sklearn.linear_model import LinearRegression
+
+    return LinearRegression(**params)
+
+
+def _random_forest_factory(params: dict[str, Any]) -> BaseEstimator:
+    from sklearn.ensemble import RandomForestRegressor
+
+    return RandomForestRegressor(**params)
+
+
+MODEL_FACTORIES: dict[ModelKind, ModelFactory] = {
+    ModelKind.LINEAR_REGRESSION: _linear_regression_factory,
+    ModelKind.RANDOM_FOREST: _random_forest_factory,
+}
 
 
 class FileSpec(BaseModel):
@@ -120,7 +148,7 @@ class SplitPolicy(BaseModel):
 class ModelPolicy(BaseModel):
     """Describe which regression model to train and its parameters."""
 
-    kind: Literal["linear_regression", "random_forest"] = "linear_regression"
+    kind: ModelKind = ModelKind.LINEAR_REGRESSION
     params: dict[str, Any] = Field(default_factory=dict)
 
 
