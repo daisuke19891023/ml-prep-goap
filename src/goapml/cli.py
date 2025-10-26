@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from pathlib import Path
 from enum import StrEnum
-from typing import Annotated, Literal
+from typing import Annotated, Literal, TextIO
 
 import typer
 from pydantic import ValidationError
@@ -107,6 +108,45 @@ def _coerce_extra_metrics(values: tuple[str, ...]) -> tuple[MetricName, ...]:
     return tuple(extras)
 
 
+def _validate_json_out_path(
+    json_out: Path | None, *, root: Path | None = None,
+) -> Path | None:
+    """Validate and normalise the requested JSON output path."""
+    if json_out is None:
+        return None
+
+    param_hint = "--json-out"
+    base = (root or Path.cwd()).resolve()
+    candidate = Path(json_out)
+
+    if ".." in candidate.parts:
+        message = "parent directory references are not allowed in --json-out"
+        raise typer.BadParameter(message, param_hint=param_hint)
+
+    try:
+        resolved = candidate.expanduser().resolve(strict=False)
+    except OSError as exc:
+        message = f"unable to resolve output path: {json_out}"
+        raise typer.BadParameter(message, param_hint=param_hint) from exc
+
+    try:
+        resolved.relative_to(base)
+    except ValueError as exc:
+        message = "output path must reside within the current working directory"
+        raise typer.BadParameter(message, param_hint=param_hint) from exc
+
+    anchored = candidate if candidate.is_absolute() else base / candidate
+
+    for current in (anchored, *anchored.parents):
+        if current == base:
+            break
+        if current.exists() and current.is_symlink():
+            message = "symbolic links are not permitted for --json-out"
+            raise typer.BadParameter(message, param_hint=param_hint)
+
+    return resolved
+
+
 def _emit_json(payload: dict[str, object], json_out: Path | None) -> None:
     """Write ``payload`` to stdout and, optionally, a JSON file."""
     text = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
@@ -114,7 +154,14 @@ def _emit_json(payload: dict[str, object], json_out: Path | None) -> None:
     if json_out is not None:
         target_path = Path(json_out)
         target_path.parent.mkdir(parents=True, exist_ok=True)
-        target_path.write_text(text + "\n", encoding="utf-8")
+
+        def _opener(path: str, flags: int) -> int:
+            base_flags = flags | getattr(os, "O_NOFOLLOW", 0)
+            return os.open(path, base_flags, 0o600)
+
+        with open(target_path, mode="w", encoding="utf-8", opener=_opener) as handle:
+            writer: TextIO = handle
+            writer.write(text + "\n")
 
 
 def _build_success_payload(
@@ -207,6 +254,7 @@ def run(
 ) -> None:
     """Run the GOAP regression pipeline and report evaluation metrics."""
     _configure_logging(log_level)
+    safe_json_out = _validate_json_out_path(json_out)
 
     state = WorldState(facts={"file_exists"})
     goal = Goal(required={"evaluated"})
@@ -238,8 +286,8 @@ def run(
         typer.echo("Configuration validation failed:", err=True)
         typer.echo(str(exc), err=True)
         payload = _build_failure_payload(message="configuration_error", state=state)
-        if json_out is not None:
-            _emit_json(payload, json_out)
+        if safe_json_out is not None:
+            _emit_json(payload, safe_json_out)
         raise typer.Exit(code=1) from exc
 
     try:
@@ -247,16 +295,16 @@ def run(
     except ExecutionError as exc:
         typer.echo(f"Execution failed: {exc}", err=True)
         payload = _build_failure_payload(message=str(exc), state=state)
-        _emit_json(payload, json_out)
+        _emit_json(payload, safe_json_out)
         raise typer.Exit(code=1) from exc
     except Exception as exc:  # pragma: no cover - unexpected failures
         LOGGER.exception("Unhandled exception during pipeline execution")
         payload = _build_failure_payload(message=str(exc), state=state)
-        _emit_json(payload, json_out)
+        _emit_json(payload, safe_json_out)
         raise typer.Exit(code=1) from exc
 
     payload = _build_success_payload(state=state, executed=executed)
-    _emit_json(payload, json_out)
+    _emit_json(payload, safe_json_out)
 
 
 if __name__ == "__main__":  # pragma: no cover - script entry point
