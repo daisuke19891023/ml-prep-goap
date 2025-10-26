@@ -5,6 +5,7 @@ from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path, PurePath
+from functools import cache
 from typing import TYPE_CHECKING, Annotated, Any, Literal, cast
 
 from numpy.typing import NDArray
@@ -153,10 +154,30 @@ MODEL_PARAM_SCHEMAS: dict[ModelKind, type[BaseModel]] = {
 }
 
 
-def _collect_supported_model_params() -> dict[ModelKind, frozenset[str]]:
+def _derive_schema_parameter_names(schema: type[BaseModel]) -> frozenset[str]:
+    """Extract parameter names declared on the allow-list schema."""
+    allowed: set[str] = set()
+    for name, model_field in schema.model_fields.items():
+        alias = model_field.alias or name
+        allowed.add(str(alias))
+        serialization_alias = getattr(model_field, "serialization_alias", None)
+        if serialization_alias is not None:
+            allowed.add(str(serialization_alias))
+    return frozenset(allowed)
+
+
+@cache
+def get_supported_model_params() -> dict[ModelKind, frozenset[str]]:
     """Return a map of estimator kinds to the parameters they accept."""
     supported: dict[ModelKind, frozenset[str]] = {}
     for kind, factory in MODEL_FACTORIES.items():
+        schema = MODEL_PARAM_SCHEMAS.get(kind)
+        if schema is not None:
+            derived = _derive_schema_parameter_names(schema)
+            if derived:
+                supported[kind] = derived
+                continue
+
         estimator = factory({})
         get_params = getattr(estimator, "get_params", None)
         if get_params is None:  # pragma: no cover - defensive guard
@@ -165,9 +186,6 @@ def _collect_supported_model_params() -> dict[ModelKind, frozenset[str]]:
         params = frozenset(str(name) for name in get_params())
         supported[kind] = params
     return supported
-
-
-_SUPPORTED_MODEL_PARAMS = _collect_supported_model_params()
 
 
 class FileSpec(BaseModel):
@@ -287,7 +305,7 @@ class ModelPolicy(BaseModel):
         )
         self.params = sanitized
 
-        supported = _SUPPORTED_MODEL_PARAMS.get(self.kind)
+        supported = get_supported_model_params().get(self.kind)
         if supported is None:  # pragma: no cover - defensive guard
             message = f"Unsupported model kind: {self.kind}"
             raise ValueError(message)
