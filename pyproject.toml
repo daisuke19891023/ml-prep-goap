@@ -107,8 +107,6 @@ exclude = [
     "dist",
 ]
 stubPath = "typings"
-venvPath = "."
-venv = ".venv"
 typeCheckingMode = "strict"
 useLibraryCodeForTypes = true
 reportMissingImports = true

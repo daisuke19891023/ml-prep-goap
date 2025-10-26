@@ -25,6 +25,7 @@ from goapml.models import (
     TargetSpec,
     WorldState,
 )
+import goapml.paths as path_utils
 from goapml.schemas import Goal
 
 __all__ = ["app"]
@@ -137,14 +138,13 @@ def _validate_json_out_path(
 
     anchored = candidate if candidate.is_absolute() else base / candidate
 
-    for current in (anchored, *anchored.parents):
-        if current == base:
-            break
-        if current.exists() and current.is_symlink():
-            message = "symbolic links are not permitted for --json-out"
-            raise typer.BadParameter(message, param_hint=param_hint)
+    try:
+        safe_path = path_utils.ensure_safe_path(base, anchored)
+    except path_utils.UnsafePathError as exc:
+        message = "symbolic links or reparse points are not permitted for --json-out"
+        raise typer.BadParameter(message, param_hint=param_hint) from exc
 
-    return anchored
+    return safe_path
 
 
 def _emit_json(payload: dict[str, object], json_out: Path | None) -> None:
@@ -152,6 +152,14 @@ def _emit_json(payload: dict[str, object], json_out: Path | None) -> None:
     text = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
     typer.echo(text)
     if json_out is not None:
+        if not path_utils.secure_open_supported():
+            message = (
+                "Secure JSON output (--json-out) is unsupported on this platform; "
+                "os.O_NOFOLLOW and dir_fd support are required."
+            )
+            typer.echo(message, err=True)
+            raise typer.Exit(code=1)
+
         target_path = Path(json_out)
         target_path.parent.mkdir(parents=True, exist_ok=True)
 
