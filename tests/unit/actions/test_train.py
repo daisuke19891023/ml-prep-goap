@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
@@ -252,6 +253,38 @@ def test_persist_artifacts_rejects_directory_symlink_swap(
     assert "Failed to persist artefact directory" in str(exc.value)
     assert not (outside_root / model_path.name).exists()
     assert not (outside_root / preprocessor_path.name).exists()
+
+
+def test_persist_artifacts_handles_missing_o_path(
+    pipeline_config: PipelineConfig,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Persisting artefacts succeeds when ``os.O_PATH`` is unavailable."""
+    x_train = np.array([[1.0], [2.0], [3.0]], dtype=float)
+    x_test = np.array([[4.0], [5.0]], dtype=float)
+    y_train = np.array([1.0, 2.0, 3.0], dtype=float)
+    y_test = np.array([4.0, 5.0], dtype=float)
+
+    scaler: Any = StandardScaler()
+    scaler.fit(x_train)
+
+    state = WorldState(
+        split=(x_train, x_test, y_train, y_test),
+        preprocessor=scaler,
+        facts={"features_ready"},
+    )
+
+    TrainModel().run(state, pipeline_config)
+
+    monkeypatch.delattr(os, "O_PATH", raising=False)
+
+    PersistArtifacts().run(state, pipeline_config)
+
+    assert state.has("persisted")
+    assert state.model_path is not None
+    assert state.model_path.exists()
+    assert state.preprocessor_path is not None
+    assert state.preprocessor_path.exists()
 
 
 def test_train_model_linear_regression_fits_and_logs(
