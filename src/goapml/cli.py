@@ -5,9 +5,9 @@ from __future__ import annotations
 import json
 import logging
 import os
-from pathlib import Path
 from enum import StrEnum
-from typing import Annotated, Literal, TextIO
+from pathlib import Path
+from typing import Annotated, Literal
 
 import typer
 from pydantic import ValidationError
@@ -144,7 +144,7 @@ def _validate_json_out_path(
             message = "symbolic links are not permitted for --json-out"
             raise typer.BadParameter(message, param_hint=param_hint)
 
-    return resolved
+    return anchored
 
 
 def _emit_json(payload: dict[str, object], json_out: Path | None) -> None:
@@ -155,13 +155,44 @@ def _emit_json(payload: dict[str, object], json_out: Path | None) -> None:
         target_path = Path(json_out)
         target_path.parent.mkdir(parents=True, exist_ok=True)
 
-        def _opener(path: str, flags: int) -> int:
-            base_flags = flags | getattr(os, "O_NOFOLLOW", 0)
-            return os.open(path, base_flags, 0o600)
+        absolute_target = target_path.absolute()
+        directory_parts = absolute_target.parts[:-1]
+        file_name = absolute_target.name
 
-        with open(target_path, mode="w", encoding="utf-8", opener=_opener) as handle:
-            writer: TextIO = handle
-            writer.write(text + "\n")
+        directory_flags = getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+        path_flag = getattr(os, "O_PATH", 0)
+        if path_flag:
+            directory_flags |= path_flag
+        else:
+            directory_flags |= os.O_RDONLY
+
+        dir_fd: int | None = None
+        try:
+            for index, component in enumerate(directory_parts):
+                if index == 0 and absolute_target.is_absolute():
+                    path_component = component or os.sep
+                    next_fd = os.open(path_component, directory_flags)
+                else:
+                    next_fd = os.open(component, directory_flags, dir_fd=dir_fd)
+                    if dir_fd is not None:
+                        os.close(dir_fd)
+                dir_fd = next_fd
+
+            file_flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0)
+            file_flags |= getattr(os, "O_CLOEXEC", 0)
+            file_descriptor = os.open(file_name, file_flags, 0o600, dir_fd=dir_fd)
+            with os.fdopen(file_descriptor, "w", encoding="utf-8") as writer:
+                writer.write(text + "\n")
+        except OSError as exc:
+            message = (
+                "Refusing to write JSON output because the destination directory "
+                "changed during execution (possible symlink)."
+            )
+            typer.echo(message, err=True)
+            raise typer.Exit(code=1) from exc
+        finally:
+            if dir_fd is not None:
+                os.close(dir_fd)
 
 
 def _build_success_payload(
