@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import stat
 from dataclasses import dataclass, field
 from typing import IO, TYPE_CHECKING, Any, Protocol, cast
 
@@ -187,8 +188,45 @@ class PersistArtifacts(Action):
             },
         )
 
-        self._dump(state.model, model_path)
-        self._dump(state.preprocessor, preprocessor_path)
+        directory_path = os.fspath(directory)
+        directory_message = f"Failed to persist artefact directory: {directory}"
+        try:
+            dir_fd = os.open(
+                directory_path,
+                os.O_DIRECTORY | os.O_NOFOLLOW | os.O_PATH,
+            )
+        except OSError as exc:  # pragma: no cover - escalated for observability
+            raise RuntimeError(directory_message) from exc
+
+        try:
+            try:
+                stat_result = os.fstat(dir_fd)
+            except OSError as exc:  # pragma: no cover - escalated for observability
+                raise RuntimeError(directory_message) from exc
+
+            if not stat.S_ISDIR(stat_result.st_mode):
+                raise RuntimeError(directory_message)
+
+            try:
+                model_relative = model_path.relative_to(directory)
+                preprocessor_relative = preprocessor_path.relative_to(directory)
+            except ValueError as exc:  # pragma: no cover - defensive guard
+                raise RuntimeError(directory_message) from exc
+
+            self._dump(
+                state.model,
+                model_relative,
+                dir_fd=dir_fd,
+                display_path=model_path,
+            )
+            self._dump(
+                state.preprocessor,
+                preprocessor_relative,
+                dir_fd=dir_fd,
+                display_path=preprocessor_path,
+            )
+        finally:
+            os.close(dir_fd)
 
         state.model_path = model_path
         state.preprocessor_path = preprocessor_path
@@ -207,13 +245,19 @@ class PersistArtifacts(Action):
         )
 
     @staticmethod
-    def _dump(obj: Any, path: Path) -> None:
+    def _dump(
+        obj: Any,
+        path: Path,
+        *,
+        dir_fd: int,
+        display_path: Path,
+    ) -> None:
         required_flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW
         file_path = os.fspath(path)
-        message = f"Failed to persist artefact: {path}"
+        message = f"Failed to persist artefact: {display_path}"
 
         try:
-            fd = os.open(file_path, required_flags, 0o600)
+            fd = os.open(file_path, required_flags, 0o600, dir_fd=dir_fd)
         except OSError as exc:  # pragma: no cover - escalated for observability
             raise RuntimeError(message) from exc
 

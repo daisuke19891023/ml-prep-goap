@@ -177,6 +177,54 @@ def test_persist_artifacts_rejects_symlink_targets(
     assert "Failed to persist artefact" in str(exc.value)
 
 
+def test_persist_artifacts_rejects_directory_symlink_swap(
+    pipeline_config: PipelineConfig,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Symlink swaps of the artefact directory are rejected."""
+    x_train = np.array([[1.0], [2.0], [3.0]], dtype=float)
+    x_test = np.array([[4.0], [5.0]], dtype=float)
+    y_train = np.array([1.0, 2.0, 3.0], dtype=float)
+    y_test = np.array([4.0, 5.0], dtype=float)
+
+    scaler: Any = StandardScaler()
+    scaler.fit(x_train)
+
+    state = WorldState(
+        split=(x_train, x_test, y_train, y_test),
+        preprocessor=scaler,
+        facts={"features_ready"},
+    )
+
+    TrainModel().run(state, pipeline_config)
+
+    directory, model_path, preprocessor_path = pipeline_config.resolve_artifact_paths()
+    original_resolve = PipelineConfig.resolve_artifact_paths
+
+    def _patched_resolve(self: PipelineConfig) -> tuple[Path, Path, Path]:
+        if self is pipeline_config:
+            return directory, model_path, preprocessor_path
+        return original_resolve(self)
+
+    monkeypatch.setattr(PipelineConfig, "resolve_artifact_paths", _patched_resolve)
+    directory.mkdir(parents=True, exist_ok=True)
+    outside_root = Path(pipeline_config.artifacts_root).resolve().parent / "outside"
+    outside_root.mkdir(parents=True, exist_ok=True)
+
+    try:
+        directory.rmdir()
+        directory.symlink_to(outside_root, target_is_directory=True)
+    except OSError as exc:  # pragma: no cover - platform without symlink support
+        pytest.skip(f"symlink not supported on this platform: {exc}")
+
+    with pytest.raises(RuntimeError) as exc:
+        PersistArtifacts().run(state, pipeline_config)
+
+    assert "Failed to persist artefact directory" in str(exc.value)
+    assert not (outside_root / model_path.name).exists()
+    assert not (outside_root / preprocessor_path.name).exists()
+
+
 def test_train_model_linear_regression_fits_and_logs(
     pipeline_config: PipelineConfig,
 ) -> None:
