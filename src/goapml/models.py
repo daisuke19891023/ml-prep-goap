@@ -5,10 +5,18 @@ from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path, PurePath
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Annotated, Any, Literal, cast
 
 from numpy.typing import NDArray
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    PositiveInt,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 
 _MIN_TEST_SIZE = 0.05
@@ -73,6 +81,54 @@ def _random_forest_factory(params: dict[str, Any]) -> BaseEstimator:
 MODEL_FACTORIES: dict[ModelKind, ModelFactory] = {
     ModelKind.LINEAR_REGRESSION: _linear_regression_factory,
     ModelKind.RANDOM_FOREST: _random_forest_factory,
+}
+
+
+class LinearRegressionParams(BaseModel):
+    """Allow-list safe parameters for ``LinearRegression``."""
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    fit_intercept: bool | None = None
+    copy_x: bool | None = Field(
+        default=None,
+        alias="copy_X",
+        validation_alias="copy_X",
+        serialization_alias="copy_X",
+    )
+    positive: bool | None = None
+    n_jobs: PositiveInt | None = None
+
+
+MaxFeaturesType = (
+    Literal["sqrt", "log2"]
+    | Annotated[int, Field(ge=1)]
+    | Annotated[float, Field(gt=0, le=1)]
+    | None
+)
+
+
+class RandomForestParams(BaseModel):
+    """Allow-list safe parameters for ``RandomForestRegressor``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    n_estimators: Annotated[int, Field(ge=10, le=500)] | None = None
+    criterion: (
+        Literal["squared_error", "absolute_error", "friedman_mse", "poisson"] | None
+    ) = None
+    max_depth: Annotated[int, Field(gt=0)] | None = None
+    max_features: MaxFeaturesType = None
+    min_samples_split: Annotated[int, Field(ge=2, le=1000)] | None = None
+    min_samples_leaf: Annotated[int, Field(ge=1, le=1000)] | None = None
+    bootstrap: bool | None = None
+    random_state: Annotated[int, Field(ge=0)] | None = None
+    n_jobs: PositiveInt | None = None
+
+
+MODEL_PARAM_SCHEMAS: dict[ModelKind, type[BaseModel]] = {
+    ModelKind.LINEAR_REGRESSION: LinearRegressionParams,
+    ModelKind.RANDOM_FOREST: RandomForestParams,
 }
 
 
@@ -183,12 +239,29 @@ class ModelPolicy(BaseModel):
     @model_validator(mode="after")
     def validate_supported_parameters(self) -> ModelPolicy:
         """Ensure the provided parameters are accepted by the estimator."""
+        try:
+            schema = MODEL_PARAM_SCHEMAS[self.kind]
+        except KeyError as exc:  # pragma: no cover - defensive guard
+            message = f"Unsupported model kind: {self.kind}"
+            raise ValueError(message) from exc
+
+        try:
+            parsed = schema.model_validate(self.params)
+        except ValidationError as exc:
+            message = f"Invalid parameters for {self.kind}: {exc}"
+            raise ValueError(message) from exc
+
+        sanitized = parsed.model_dump(
+            exclude_unset=True, exclude_none=True, by_alias=True,
+        )
+        self.params = sanitized
+
         supported = _SUPPORTED_MODEL_PARAMS.get(self.kind)
         if supported is None:  # pragma: no cover - defensive guard
             message = f"Unsupported model kind: {self.kind}"
             raise ValueError(message)
 
-        unexpected = sorted(name for name in self.params if name not in supported)
+        unexpected = sorted(name for name in sanitized if name not in supported)
         if unexpected:
             joined = ", ".join(unexpected)
             message = f"Unsupported parameter(s) for {self.kind}: {joined}"
